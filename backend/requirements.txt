@@ -1,28 +1,31 @@
 # API
-fastapi
-uvicorn
-pydantic
-httpx
-requests
+fastapi==0.142.2
+uvicorn==0.54.0
+pydantic==2.13.5
+httpx==0.28.1
+requests==2.34.2
+python-dotenv==1.2.4
+python-multipart==0.0.32
 
 # Vector DB / RAG
-chromadb
-sentence-transformers
-rank-bm25
+chromadb==1.5.9
+sentence-transformers==6.1.0
+rank-bm25==0.2.2
 
 # ML / OCR
-torch
-transformers
-pillow
-pytesseract
-opencv-python-headless
-numpy
-scikit-learn
+torch==2.14.1
+transformers==5.18.0
+pillow==12.3.0
+pytesseract==0.3.13
+opencv-python-headless==5.0.0.93
+numpy==2.4.6
+scikit-learn==1.9.1
+# Optional: PaddleOCR is not part of the core install (requires paddlepaddle).
+# Install manually if needed for advanced OCR pipelines.
 
 # PDF
-pymupdf
+pymupdf==1.28.2
+pypdf==6.19.0
 
 # Watcher
-watchdog
-
-python-multipart
+watchdog==6.0.0

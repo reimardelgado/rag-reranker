@@ -2,6 +2,8 @@
 
 Sistema RAG (Retrieval-Augmented Generation) con búsqueda híbrida (densa + léxica), fusión RRF y reranking con cross-encoder, desplegado en Docker con interfaz Open WebUI.
 
+> **Estado actual (2026-10-07):** Todas las dependencias Python y las imágenes Docker están fijadas a versiones verificadas. La persistencia de ChromaDB fue corregida y respaldada. El archivo `.env` requiere tanto `GEMINI_API_KEY` como `WEBUI_SECRET_KEY`. Consultar **[ACTUALIZACION_PROYECTO_2026.md](ACTUALIZACION_PROYECTO_2026.md)** para el registro completo de cambios, pasos de activación y backlog técnico.
+
 ---
 
 ## Arquitectura del sistema
@@ -25,7 +27,7 @@ Sistema RAG (Retrieval-Augmented Generation) con búsqueda híbrida (densa + lé
 | `rag-backend` | 8088 | Backend FastAPI (RAG, ingesta, BM25, reranker) |
 | `chroma` | 8000 | Base vectorial ChromaDB |
 | `ollama` | 11434 | LLM local (opcional) |
-| `open-webui` | 8080 | Interfaz gráfica de chat |
+| `open-webui` | 8081 | Interfaz gráfica de chat |
 
 ---
 
@@ -48,13 +50,15 @@ cd rag-hybrid-reranker-project
 
 ## 2. Configurar variables de entorno
 
-Crea el archivo `backend/.env` copiando la plantilla y completando tu API key:
+Crea el archivo `.env` en la raíz del proyecto copiando la plantilla y completando tu API key:
 
 ```bash
-cp backend/.env.example backend/.env
+cp .env.example .env
 ```
 
-Edita `backend/.env` con tus valores:
+En PowerShell también puedes copiarlo con `Copy-Item .env.example .env`.
+
+Edita `.env` con tus valores:
 
 ```env
 # Chroma
@@ -72,7 +76,7 @@ GEMINI_API_KEY=TuApiKey
 # Motor por defecto
 DEFAULT_TOP_K=6
 DEFAULT_PROVIDER=gemini
-DEFAULT_GEMINI_MODEL=gemini-2.5-flash
+DEFAULT_GEMINI_MODEL=gemini-3.8-flash
 
 # Watcher automático (activar si se quiere ingesta automática al añadir PDFs)
 ENABLE_WATCHER=false
@@ -116,7 +120,7 @@ docker compose down
 
 | Interfaz | URL |
 |----------|-----|
-| Open WebUI (chat) | http://localhost:8080 |
+| Open WebUI (chat) | http://localhost:8081 |
 | Backend FastAPI (health check) | http://localhost:8088/health |
 | Documentación API (Swagger) | http://localhost:8088/docs |
 
@@ -124,7 +128,7 @@ docker compose down
 
 ## 5. Configurar Open WebUI con Gemini
 
-1. Abrir http://localhost:8080 e iniciar sesión como administrador
+1. Abrir http://localhost:8081 e iniciar sesión como administrador
 2. Ir a **Ajustes → Conexiones**
 3. Añadir una nueva conexión OpenAI-compatible con:
    - **URL:** `https://generativelanguage.googleapis.com/v1beta/openai/`
@@ -179,7 +183,7 @@ docker exec -it rag-backend python ingest_ocr_batch.py \
 
 ### Ingesta automática (Watcher)
 
-El sistema incluye un watcher que vigila `backend/docs/` y lanza la ingesta automáticamente al detectar nuevos PDFs. Para activarlo, establece en `backend/.env`:
+El sistema incluye un watcher que vigila `backend/docs/` y lanza la ingesta automáticamente al detectar nuevos PDFs. Para activarlo, establece en `.env`:
 
 ```env
 ENABLE_WATCHER=true
@@ -231,7 +235,7 @@ curl -X POST http://localhost:8088/answer \
   -d '{
     "query": "Explica los enfoques teóricos de la Arqueología según el texto",
     "top_k": 6,
-    "model": "gemini-2.5-flash"
+    "model": "gemini-3.8-flash"
   }'
 ```
 
@@ -290,21 +294,22 @@ rag-hybrid-reranker-project/
 │   ├── ingest_batch.py         # Ingesta PDF sin OCR
 │   ├── watcher.py              # Watcher automático de docs
 │   ├── watch_and_ingest.py     # Watcher con estado persistente
-│   ├── diagnostico_pdf.py      # Herramienta de diagnóstico PDF
 │   ├── list_sources.py         # Listar fuentes en ChromaDB
 │   ├── stats_overall.py        # Estadísticas globales
 │   ├── stats_by_source.py      # Estadísticas por fuente
 │   ├── verify_chroma_chunks.py # Verificar chunks en ChromaDB
 │   ├── query_chroma_sanity.py  # Consulta de sanity check
 │   ├── chroma_delete_source.py # Eliminar fuente de ChromaDB
-│   ├── requirements.txt        # Dependencias Python
+│   ├── config.py               # Configuración centralizada (Settings)
+│   ├── requirements.txt        # Dependencias Python (fijadas)
 │   ├── Dockerfile              # Imagen del backend
+│   ├── .dockerignore           # Exclusiones del contexto de build
+│   ├── rag-backend-openapi.yaml # Especificación OpenAPI (parcial)
 │   └── docs/                   # Carpeta para documentos a ingestar
-├── config.py                   # Configuración centralizada (Settings)
 ├── docker-compose.yml          # Orquestación de servicios
-├── rag-backend-openapi.yaml    # Especificación OpenAPI
 ├── .env.example                # Plantilla de variables de entorno
 ├── .gitignore
+├── ACTUALIZACION_PROYECTO_2026.md # Registro de actualización 2026-10-07
 └── README.md
 ```
 
@@ -316,16 +321,13 @@ rag-hybrid-reranker-project/
 Verifica que `CHROMA_HOST=chroma` en el `.env` (debe ser el nombre del servicio Docker, no `localhost`).
 
 **Error `GEMINI_API_KEY` no encontrada:**
-Asegúrate de que el archivo `backend/.env` existe y contiene la variable. Reinicia el backend tras editarlo: `docker compose restart backend`.
+Asegúrate de que el archivo `.env` existe en la raíz del proyecto y contiene la variable. Reinicia el backend tras editarlo: `docker compose restart backend`.
 
 **BM25 no disponible:**
 Ejecuta `curl -X POST http://localhost:8088/rebuild_bm25` después de cada ingesta masiva.
 
 **PDF sin texto extraído:**
-Usa `--enable-ocr` en la ingesta. Puedes diagnosticar el PDF con:
-```bash
-docker exec -it rag-backend python diagnostico_pdf.py /app/docs/archivo.pdf --scan-all
-```
+Usa `--enable-ocr` en la ingesta para activar OCR con Tesseract.
 
 ---
 

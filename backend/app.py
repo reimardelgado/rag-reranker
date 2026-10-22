@@ -25,7 +25,7 @@ import chromadb
 from chromadb.config import Settings
 
 # ---- PDF + OCR ----
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 from PIL import Image
 try:
     import pytesseract
@@ -53,7 +53,7 @@ GEM_BASE             = os.getenv("GEM_BASE", "https://generativelanguage.googlea
 GEM_KEY              = os.getenv("GEMINI_API_KEY") or os.getenv("GEM_KEY")
 OLLAMA_BASE_URL      = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 DEFAULT_TOP_K        = int(os.getenv("DEFAULT_TOP_K", "6"))
-DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-2.5-flash")
+DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-3.8-flash")
 ENABLE_RERANKER      = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
 RERANKER_MODEL       = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
 RERANKER_TOP_K       = int(os.getenv("RERANKER_TOP_K", "6"))
@@ -386,10 +386,10 @@ def _is_ollama_model(model_id: str) -> bool:
 
 def _get_gemini_models() -> list:
     return [
-        {"id": "gemini-2.5-flash", "object": "model", "owned_by": "google", "created": 0},
-        {"id": "gemini-2.0-flash", "object": "model", "owned_by": "google", "created": 0},
-        {"id": "gemini-1.5-flash", "object": "model", "owned_by": "google", "created": 0},
-        {"id": "gemini-1.5-pro",   "object": "model", "owned_by": "google", "created": 0},
+        {"id": "gemini-3.8-flash", "object": "model", "owned_by": "google", "created": 0},
+        {"id": "gemini-3.7-flash", "object": "model", "owned_by": "google", "created": 0},
+        {"id": "gemini-3.6-flash", "object": "model", "owned_by": "google", "created": 0},
+        {"id": "gemini-3.5-flash", "object": "model", "owned_by": "google", "created": 0},
     ]
 
 # ================== LLM calls ==================
@@ -549,8 +549,9 @@ async def ingest_pdf(file: UploadFile = File(...), ocr: bool = Form(False)):
         embeddings=embeddings,
         ids=[str(uuid.uuid4()) for _ in documents]
     )
+    page_count = len(doc)
     doc.close()
-    return {"ok": True, "pages": len(doc), "chunks": len(documents)}
+    return {"ok": True, "pages": page_count, "chunks": len(documents)}
 
 # ---------- Retrieve (denso) ----------
 @app.post("/retrieve", operation_id="rag_retrieve")

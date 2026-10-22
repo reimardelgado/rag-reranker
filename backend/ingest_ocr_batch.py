@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Tuple, Iterable, List, Optional, Dict, Any
 from config import settings
 
-import fitz
+import pymupdf as fitz
 from PIL import Image
 import pytesseract
 

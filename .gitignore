@@ -1,6 +1,38 @@
+# Environment / secrets
 .env
 backend/.env
+
+# Chroma runtime database (bind-mounted, ~35 MB)
+/chroma_data/
+
+# Python bytecode and caches
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Ingest state
 .ingest_progress/
+backend/ingest_state.json
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+.atl/
+*.swp
+*.swo
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+
+# PDFs de ingesta (pueden superar el límite de 100 MB de GitHub)
+backend/docs/*.pdf

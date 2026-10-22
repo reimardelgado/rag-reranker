@@ -66,7 +66,7 @@ def chunk(text: str, max_chars=1200, overlap=150):
     return chunks
 
 def load_pdf_pages(path: str):
-    import fitz  # PyMuPDF
+    import pymupdf as fitz  # PyMuPDF
     with fitz.open(path) as doc:
         total = len(doc)
         info(f"Total de páginas: {total}")

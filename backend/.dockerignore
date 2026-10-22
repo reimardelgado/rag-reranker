@@ -1,0 +1,37 @@
+# Environment / secrets
+.env
+.env.*
+
+# Documentation and reports (not needed at runtime)
+docs/
+
+# Chroma local data / ingest state
+chroma_data/
+.ingest_progress/
+ingest_state.json
+
+# Python caches and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Git and IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS artifacts
+Thumbs.db
+.DS_Store

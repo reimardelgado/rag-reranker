@@ -12,6 +12,6 @@ class Settings:
     GEM_BASE        = os.getenv("GEM_BASE", "https://generativelanguage.googleapis.com/v1beta/openai/")
     DOCS_PATH       = os.getenv("DOCS_PATH", "/app/docs")
     DEFAULT_TOP_K   = int(os.getenv("DEFAULT_TOP_K", 6))
-    DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-2.5-flash")
+    DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-3.8-flash")
 
 settings = Settings()

@@ -35,7 +35,7 @@ paths:
               properties:
                 query: { type: string }
                 top_k: { type: integer, default: 6, minimum: 1, maximum: 50 }
-                model:  { type: string, default: "gemini-2.5-flash" }
+                model:  { type: string, default: "gemini-3.8-flash" }
                 temperature: { type: number, default: 0.3, minimum: 0, maximum: 1 }
               required: [query]
       responses:
