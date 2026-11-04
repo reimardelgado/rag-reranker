@@ -32,6 +32,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - ENABLE_RERANKER=true
       - GROUNDED_IMAGE_ENABLED=${GROUNDED_IMAGE_ENABLED:-false}
+      - GROUNDED_IMAGE_SHADOW=${GROUNDED_IMAGE_SHADOW:-false}
       - GROUNDED_IMAGE_TRUSTED_BOUNDARY=${GROUNDED_IMAGE_TRUSTED_BOUNDARY:-false}
       - GROUNDED_IMAGE_PROVENANCE_ENABLED=${GROUNDED_IMAGE_PROVENANCE_ENABLED:-false}
       - GROUNDED_IMAGE_REPLICA_COUNT=1
@@ -49,9 +50,14 @@ services:
       - "8081:8080"
     environment:
       - OPENAI_API_BASE_URLS=http://rag-backend:8088/v1
-      - OPENAI_API_KEYS=dummy
+      # The bearer key Open WebUI sends to the RAG backend doubles as the
+      # trusted service token for grounded images (never commit its value).
+      - OPENAI_API_KEYS=${RAG_TRUSTED_SERVICE_TOKEN:-dummy}
       - OLLAMA_BASE_URL=http://ollama:11434
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      # Forwards X-OpenWebUI-User-Id / Chat-Id (and Message-Id when supported)
+      # so the backend can correlate the image tool loop. Off by default.
+      - ENABLE_FORWARD_USER_INFO_HEADERS=${OPENWEBUI_FORWARD_USER_INFO_HEADERS:-false}
     depends_on:
       - backend
       - ollama
