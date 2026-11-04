@@ -12,6 +12,7 @@ import base64
 import binascii
 import json
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from copy import deepcopy
@@ -77,6 +78,7 @@ class _NativeCall:
 class _PendingContinuation:
     calls: tuple[_NativeCall, ...]
     model_content: dict[str, object] = field(repr=False)
+    expires_at: float = float("inf")
 
 
 class GeminiNativeAdapter:
@@ -93,7 +95,9 @@ class GeminiNativeAdapter:
         max_response_bytes: int = 2 * 1024 * 1024,
         max_inline_bytes: int = 10 * 1024 * 1024,
         max_pending_calls: int = 32,
+        pending_ttl_seconds: float = 600.0,
         id_factory: Callable[[], str] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not api_key:
             raise ValueError("Gemini API key is required.")
@@ -102,6 +106,7 @@ class GeminiNativeAdapter:
             or max_response_bytes <= 0
             or max_inline_bytes <= 0
             or max_pending_calls <= 0
+            or not pending_ttl_seconds > 0
         ):
             raise ValueError("Adapter bounds must be positive.")
         self._api_key = api_key
@@ -113,6 +118,8 @@ class GeminiNativeAdapter:
         self._max_inline_bytes = max_inline_bytes
         self._max_pending_calls = max_pending_calls
         self._id_factory = id_factory or (lambda: f"call_{uuid.uuid4().hex}")
+        self._pending_ttl_seconds = float(pending_ttl_seconds)
+        self._clock = clock
         self._pending_by_id: dict[str, _PendingContinuation] = {}
 
     def __repr__(self) -> str:
@@ -129,7 +136,75 @@ class GeminiNativeAdapter:
             yield event
         yield result.finish
 
+    @property
+    def pending_continuation_count(self) -> int:
+        self._purge_expired_pending()
+        return len(self._pending_by_id)
+
+    def discard_continuation(self, tool_call_id: str) -> bool:
+        """Forget the private continuation that owns ``tool_call_id``.
+
+        Used when a function call is consumed internally (for example a
+        structured-output call) and will never be continued by a client.
+        """
+
+        pending = self._pending_by_id.get(tool_call_id)
+        if pending is None:
+            return False
+        self._discard_pending(pending)
+        return True
+
+    def rebind_continuation_arguments(
+        self, tool_call_id: str, arguments: Mapping[str, object]
+    ) -> None:
+        """Accept validated replacement arguments for one pending call.
+
+        A fail-closed enforcement boundary may replace provider-chosen
+        arguments (for example with a canonical grounded prompt) before the
+        call reaches the client.  The client then echoes the replacement, so
+        continuation matching must expect it.  The private native model
+        content, including the thought signature, is deliberately unchanged.
+        """
+
+        self._purge_expired_pending()
+        pending = self._pending_by_id.get(tool_call_id)
+        if pending is None:
+            raise MissingContinuationState("Required continuation state is missing.")
+        try:
+            replacement = json.loads(
+                json.dumps(dict(arguments), ensure_ascii=False, separators=(",", ":"))
+            )
+        except (TypeError, ValueError):
+            raise InvalidProviderRequest("Replacement arguments are not JSON.") from None
+        calls = tuple(
+            _NativeCall(
+                public_id=call.public_id,
+                name=call.name,
+                arguments=deepcopy(replacement) if call.public_id == tool_call_id else call.arguments,
+                provider_id=call.provider_id,
+            )
+            for call in pending.calls
+        )
+        rebound = _PendingContinuation(
+            calls=calls,
+            model_content=pending.model_content,
+            expires_at=pending.expires_at,
+        )
+        for call in calls:
+            self._pending_by_id[call.public_id] = rebound
+
+    def _purge_expired_pending(self) -> None:
+        now = self._clock()
+        expired = {
+            id(pending): pending
+            for pending in self._pending_by_id.values()
+            if now >= pending.expires_at
+        }
+        for pending in expired.values():
+            self._discard_pending(pending)
+
     async def generate(self, request: ChatCompletionRequest) -> ProviderResult:
+        self._purge_expired_pending()
         body, consumed = self._build_request(request)
         try:
             request_size = len(
@@ -538,7 +613,11 @@ class GeminiNativeAdapter:
         if calls:
             if not signature_seen:
                 raise MalformedProviderResponse("Gemini function call signature is missing.")
-            pending = _PendingContinuation(calls=tuple(calls), model_content=deepcopy(dict(content)))
+            pending = _PendingContinuation(
+                calls=tuple(calls),
+                model_content=deepcopy(dict(content)),
+                expires_at=self._clock() + self._pending_ttl_seconds,
+            )
             if len(self._pending_by_id) + len(calls) > self._max_pending_calls:
                 raise MalformedProviderResponse("Gemini continuation state capacity was exceeded.")
             public_ids = [call.public_id for call in calls]
