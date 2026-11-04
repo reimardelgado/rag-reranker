@@ -137,11 +137,17 @@ docker compose down
 
 ### 5.1 Gate de acceso para imágenes contextualizadas
 
-> **Decisión actual: NO-GO.** La generación de imágenes contextualizadas debe
-> permanecer deshabilitada (`GROUNDED_IMAGE_ENABLED=false`). El backend de
-> producción todavía usa la ruta de texto y la captura redacted de Open WebUI
-> v0.11.4 no demostró el envío de identidad confiable de usuario/chat/mensaje.
-> La evidencia administrativa sin valores privados está en
+> **Decisión actual: NO-GO.** Estado (2026-11-04, rama
+> `feat/grounded-image-runtime`): el flujo de
+> imagen ya está **compuesto en `backend/app.py` detrás de flags apagados por
+> defecto** (`backend/api/grounded_image.py`, `backend/api/composition.py`).
+> Con `GROUNDED_IMAGE_ENABLED=false` y `GROUNDED_IMAGE_SHADOW=false` el backend
+> es idéntico a la ruta de texto. La activación sigue en **NO-GO** hasta pasar
+> los gates de abajo con un canary autorizado; el procedimiento paso a paso está
+> en **[docs/grounded-image-activation.md](docs/grounded-image-activation.md)**
+> y el análisis de brechas en
+> [docs/grounded-image-runtime-analysis.md](docs/grounded-image-runtime-analysis.md).
+> La evidencia administrativa histórica (v0.11.4, 2026-10-30) está en
 > `backend/tests/fixtures/openwebui/v0.11.4-admin-access-decision.json`.
 
 Open WebUI conserva la responsabilidad sobre RBAC, capacidades, credenciales
@@ -205,10 +211,12 @@ cumplir simultáneamente estas invariantes:
   exacto de tres iteraciones de herramientas; exactamente una réplica.
 
 Sólo después de comprobar esas precondiciones de manera redacted se puede
-considerar cambiar `GROUNDED_IMAGE_ENABLED=true`. Aun así, el estado actual del
-repositorio es **inactivo**: `backend/app.py` no compone grounding, correlación,
-enforcement ni generación. Por lo tanto, editar variables por sí solo NO
-habilita ni autoriza una llamada paga.
+considerar cambiar `GROUNDED_IMAGE_ENABLED=true`. Desde la rama
+`feat/grounded-image-runtime`, `backend/app.py` **sí compone** grounding,
+correlación, enforcement y continuación cuando ese flag es `true`; por eso
+activar el flag equivale a habilitar el canary y **requiere aprobación
+explícita**, porque la llamada siguiente de Open WebUI ejecuta su motor de
+imagen (pago). `GROUNDED_IMAGE_SHADOW=true` es el paso previo sin costo.
 
 #### Contrato de chat y errores recuperables
 
@@ -266,9 +274,10 @@ por Open WebUI para que el backend vuelva al modo text-only.
 
 #### Observabilidad, shadow y SLOs del canary
 
-`backend/metrics.py` define el contrato de observabilidad **inactivo** y de
-cardinalidad fija. `backend/app.py` no lo compone: agregar métricas no habilita
-grounding, tools ni generación. El snapshot de dashboard contiene únicamente
+`backend/metrics.py` define el contrato de observabilidad de cardinalidad fija.
+Se compone sólo en modo shadow o canary y se consulta en
+`GET /v1/grounded-image/metrics` (snapshot agregado + veredicto del gate
+shadow); con ambos flags apagados el endpoint no existe. El snapshot de dashboard contiene únicamente
 contadores agregados por etapa/resultado y buckets de latencia; no acepta ni
 expone IDs crudos, valores de headers confiables, auth, tokens, claves HMAC,
 prompts, evidencia, datos de usuario, resultados de tools o firmas privadas.
@@ -316,11 +325,13 @@ no aumenta ningún contador de generación paga y (3) el chat de texto sigue
 respondiendo dentro de su SLO. Si falta una de esas tres pruebas, el drill falla
 y el gate queda NO-GO. No se guardan requests ni valores privados como evidencia.
 
-**Resultado actual: NO-GO operativo.** No existen ventanas shadow/canary ni drill
-de rollback observados; el acceso confiable continúa fallando, la composición
-productiva está inactiva, paid generation no está aprobada y multi-réplica sigue
-bloqueado por Redis. Conservar text-only. **No ejecutar el smoke pago de 12.3**
-hasta una aprobación separada y explícita.
+**Resultado actual: NO-GO operativo.** La composición productiva ya existe
+detrás de flags, pero no hay ventanas shadow/canary ni drill de rollback
+observados, el reenvío de identidad de Open WebUI no se verificó en vivo, paid
+generation no está aprobada y multi-réplica sigue bloqueado por Redis.
+Conservar text-only. **No ejecutar el smoke pago de 12.3**
+(`backend/tests/smoke/test_paid_grounded_image_smoke.py`, marcador `paid`,
+excluido por defecto) hasta una aprobación separada y explícita.
 
 ---
 
