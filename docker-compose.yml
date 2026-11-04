@@ -31,6 +31,10 @@ services:
       - DOCS_PATH=/app/docs
       - OLLAMA_BASE_URL=http://ollama:11434
       - ENABLE_RERANKER=true
+      - GROUNDED_IMAGE_ENABLED=${GROUNDED_IMAGE_ENABLED:-false}
+      - GROUNDED_IMAGE_TRUSTED_BOUNDARY=${GROUNDED_IMAGE_TRUSTED_BOUNDARY:-false}
+      - GROUNDED_IMAGE_PROVENANCE_ENABLED=${GROUNDED_IMAGE_PROVENANCE_ENABLED:-false}
+      - GROUNDED_IMAGE_REPLICA_COUNT=1
     volumes:
       - ./backend/docs:/app/docs
     depends_on:

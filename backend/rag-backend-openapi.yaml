@@ -1,43 +1,441 @@
 openapi: 3.0.3
 info:
   title: RAG Backend (Diomaris)
-  version: "1.0.0"
+  version: "1.1.0"
+  description: >-
+    Contrato público del backend RAG. La generación contextualizada de imágenes
+    está documentada como un límite futuro, default-deny e inactivo; el runtime
+    actual conserva la composición de texto.
 servers:
   - url: http://127.0.0.1:8088
+tags:
+  - name: OpenAI compatibility
+  - name: Retrieval
 paths:
+  /v1/models:
+    get:
+      tags: [OpenAI compatibility]
+      summary: Lista modelos con forma OpenAI-compatible
+      operationId: list_models
+      responses:
+        "200":
+          description: Lista de modelos disponibles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelList"
+  /v1/chat/completions:
+    post:
+      tags: [OpenAI compatibility]
+      summary: Chat RAG OpenAI-compatible
+      operationId: create_chat_completion
+      description: >-
+        Conserva mensajes, tools, tool_choice, campos adicionales soportados y
+        partes multimodales. La consulta RAG usa únicamente el texto del último
+        turno de usuario sin mutar el request. El contrato grounded-image
+        permanece inactivo y NO-GO; configurarlo no autoriza generación paga.
+      x-grounded-image-runtime-status: inactive-no-go
+      x-grounded-image-fail-closed: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatCompletionRequest"
+      responses:
+        "200":
+          description: >-
+            Completion JSON o stream SSE. En SSE cada evento usa data y el
+            stream termina exactamente una vez con [DONE].
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletionResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: El último turno de usuario no contiene texto recuperable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FastAPIDetailError"
+        "401":
+          $ref: "#/components/responses/AuthRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/ImageStateConflict"
+        "422":
+          $ref: "#/components/responses/InvalidImageContract"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/ProviderUnavailable"
+        "504":
+          $ref: "#/components/responses/ProviderTimeout"
+  /chat/completions:
+    post:
+      tags: [OpenAI compatibility]
+      summary: Alias no versionado de chat completions
+      operationId: create_chat_completion_alias
+      deprecated: true
+      description: Use /v1/chat/completions. Conserva el mismo contrato.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatCompletionRequest"
+      responses:
+        "200":
+          description: Completion OpenAI-compatible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatCompletionResponse"
   /retrieve:
     post:
-      summary: Dense retrieval desde Chroma (devuelve contextos con [source p.page])
+      tags: [Retrieval]
+      summary: Dense retrieval desde Chroma
       operationId: rag_retrieve
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                query: { type: string }
-                top_k: { type: integer, default: 6, minimum: 1, maximum: 50 }
-              required: [query]
+              $ref: "#/components/schemas/RetrievalRequest"
       responses:
         "200":
-          description: OK
+          description: Contextos con referencias source/page
   /answer:
     post:
-      summary: RAG + Gemini (usa contextos y devuelve texto redactado)
+      tags: [Retrieval]
+      summary: RAG y respuesta textual
       operationId: rag_answer
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                query: { type: string }
-                top_k: { type: integer, default: 6, minimum: 1, maximum: 50 }
-                model:  { type: string, default: "gemini-3.8-flash" }
-                temperature: { type: number, default: 0.3, minimum: 0, maximum: 1 }
-              required: [query]
+              $ref: "#/components/schemas/AnswerRequest"
       responses:
         "200":
-          description: OK
+          description: Respuesta textual redactada
+components:
+  securitySchemes:
+    TrustedServiceToken:
+      type: apiKey
+      in: header
+      name: X-RAG-Service-Token
+      description: >-
+        Sólo para el futuro límite privado grounded-image. Nunca registrar,
+        persistir, exportar ni reutilizar este valor.
+    TrustedUserId:
+      type: apiKey
+      in: header
+      name: X-OpenWebUI-User-Id
+      description: Identidad confiable sólo detrás de la frontera autenticada.
+    TrustedChatId:
+      type: apiKey
+      in: header
+      name: X-OpenWebUI-Chat-Id
+      description: Correlación confiable; el valor crudo no se retiene.
+    TrustedRootMessageId:
+      type: apiKey
+      in: header
+      name: X-OpenWebUI-Message-Id
+      description: Mensaje raíz confiable; el valor crudo no se retiene.
+  responses:
+    AuthRequired:
+      description: Identidad o autenticación privada ausente o inválida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    Forbidden:
+      description: Permiso, capability, toggle, usuario o modelo no autorizado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    ImageStateConflict:
+      description: >-
+        Imagen deshabilitada, tool incompatible, estado vencido, límite de loop
+        o duplicado suprimido; no se realiza fallback a generación libre.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    InvalidImageContract:
+      description: >-
+        Validación HTTP/Pydantic o evidencia, grounding o llamada de herramienta
+        inválida. El envelope depende de si el fallo ocurre en el límite HTTP
+        legacy o en el adaptador opcional.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/OpenAIErrorResponse"
+              - $ref: "#/components/schemas/HTTPValidationError"
+    RateLimited:
+      description: Rate limit recuperable; no implica reintento automático pago
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    ProviderUnavailable:
+      description: Proveedor no disponible o respuesta incompatible
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+    ProviderTimeout:
+      description: Timeout del proveedor; la operación falla cerrada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OpenAIErrorResponse"
+  schemas:
+    ModelList:
+      type: object
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            type: object
+            required: [id, object, owned_by, created]
+            additionalProperties: true
+            properties:
+              id: {type: string}
+              object: {type: string}
+              owned_by: {type: string}
+              created: {type: integer}
+    ChatCompletionRequest:
+      type: object
+      required: [messages]
+      additionalProperties: true
+      properties:
+        model:
+          type: string
+          default: "gemini-3.8-flash"
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        temperature:
+          type: number
+          default: 0.6
+        stream:
+          type: boolean
+          default: false
+        stream_options:
+          type: object
+          nullable: true
+          additionalProperties: true
+          properties:
+            include_usage:
+              type: boolean
+              nullable: true
+        tools:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/ChatTool"
+        tool_choice:
+          nullable: true
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/ToolChoiceObject"
+        top_k:
+          type: integer
+          default: 6
+          minimum: 1
+          maximum: 50
+    ChatMessage:
+      type: object
+      required: [role]
+      additionalProperties: true
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: "#/components/schemas/ContentPart"
+        tool_calls:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/AssistantToolCall"
+        tool_call_id:
+          type: string
+    ContentPart:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type: {type: string}
+        text:
+          type: string
+          nullable: true
+    ChatTool:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type: {type: string}
+        function:
+          $ref: "#/components/schemas/FunctionDefinition"
+    FunctionDefinition:
+      type: object
+      required: [name]
+      additionalProperties: true
+      properties:
+        name: {type: string}
+        description:
+          type: string
+          nullable: true
+        parameters:
+          type: object
+          nullable: true
+          additionalProperties: true
+        strict:
+          type: boolean
+          nullable: true
+    ToolChoiceObject:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type: {type: string}
+        function:
+          type: object
+          additionalProperties: true
+          properties:
+            name: {type: string}
+    AssistantToolCall:
+      type: object
+      required: [id, type, function]
+      additionalProperties: true
+      properties:
+        id: {type: string}
+        type: {type: string, default: function}
+        function:
+          type: object
+          required: [name, arguments]
+          additionalProperties: true
+          properties:
+            name: {type: string}
+            arguments: {type: string}
+    ChatCompletionResponse:
+      type: object
+      required: [id, object, created, model, choices]
+      additionalProperties: true
+      properties:
+        id: {type: string}
+        object: {type: string}
+        created: {type: integer}
+        model: {type: string}
+        choices:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    OpenAIErrorResponse:
+      type: object
+      required: [error, request_id]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          additionalProperties: false
+          properties:
+            message:
+              type: string
+              maxLength: 1024
+            type:
+              type: string
+            code:
+              type: string
+              enum:
+                - AUTH_REQUIRED
+                - FORBIDDEN
+                - IMAGE_DISABLED
+                - UNSUPPORTED_TOOL
+                - STATE_EXPIRED
+                - LOOP_LIMIT
+                - DUPLICATE_SUPPRESSED
+                - NO_IMAGE_EVIDENCE
+                - INVALID_GROUNDING
+                - INVALID_TOOL_CALL
+                - RATE_LIMITED
+                - PROVIDER_UNAVAILABLE
+                - PROVIDER_INCOMPATIBLE
+                - PROVIDER_TIMEOUT
+        request_id:
+          type: string
+          description: Identificador público opaco; nunca contiene IDs confiables.
+    FastAPIDetailError:
+      type: object
+      required: [detail]
+      properties:
+        detail: {type: string}
+    HTTPValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    RetrievalRequest:
+      type: object
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1}
+        top_k: {type: integer, default: 6, minimum: 1, maximum: 50}
+    AnswerRequest:
+      allOf:
+        - $ref: "#/components/schemas/RetrievalRequest"
+        - type: object
+          properties:
+            model: {type: string, default: "gemini-3.8-flash"}
+            temperature: {type: number, default: 0.3, minimum: 0, maximum: 1}
+x-grounded-image-contract:
+  activation: inactive-no-go
+  paid-generation-approved: false
+  adapter: gemini_native
+  minimum-distinct-references: 2
+  correlation-ttl-seconds: 600
+  correlation-max-packet-bytes: 262144
+  correlation-max-identifier-bytes: 1024
+  max-tool-iterations: 3
+  replica-count: 1
+  multi-replica: no-go-pending-redis-spike
+  disclosure-label: Interpretive reconstruction
+  documentary-evidence-disclaimer-required: true
+  private-headers:
+    - X-OpenWebUI-User-Id
+    - X-OpenWebUI-Chat-Id
+    - X-OpenWebUI-Message-Id
+    - X-RAG-Service-Token
+  never-log-or-persist:
+    - credentials
+    - authentication-values
+    - raw-trusted-identifiers
+    - prompts
+    - evidence
+    - user-data
+    - provider-private-signatures

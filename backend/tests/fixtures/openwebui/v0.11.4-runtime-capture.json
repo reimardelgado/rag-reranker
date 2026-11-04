@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "capture": {
+    "product": "Open WebUI",
+    "version": "0.11.4",
+    "captured_at": "2026-10-30",
+    "status": "complete",
+    "sanitization": {
+      "contains_secrets": false,
+      "contains_user_identifiers": false,
+      "contains_chat_or_message_identifiers": false,
+      "contains_raw_prompts_or_responses": false
+    }
+  },
+  "capture_boundary": {
+    "status": "captured_reviewed_and_rolled_back",
+    "accepted_chat_requests": 1,
+    "maximum_accepted_chat_requests": 1,
+    "extra_chat_request_policy": "reject_409",
+    "forwarding_enabled": false,
+    "fake_response": "deterministic_openai_compatible_text",
+    "supported_paths": [
+      "/v1/models",
+      "/v1/chat/completions"
+    ],
+    "sanitized_output_path": "rag-backend:/tmp/openwebui-capture-task-5.1.json",
+    "redaction_contract": {
+      "recursive_key_names": true,
+      "value_types": true,
+      "array_lengths": true,
+      "allowlisted_protocol_enums": true,
+      "booleans": true,
+      "header_names_only": true,
+      "header_values": false,
+      "arbitrary_string_values": false,
+      "raw_messages_or_prompts": false,
+      "identifiers": false
+    },
+    "runtime_connection": {
+      "scope": "openai_chat_base_url_only",
+      "redirected_to_temporary_capture": false,
+      "rollback_backup_present": false,
+      "temporary_helper_present": false,
+      "requires_open_webui_restart_after_rollback": true
+    },
+    "rollback": [
+      "docker exec open-webui python /tmp/runtime_connection.py rollback --database /app/backend/data/webui.db --backup /tmp/task-5.1-chat-url-backup.sqlite --expected-capture-url http://rag-backend:8099/v1",
+      "docker restart open-webui",
+      "docker exec rag-backend sh -lc 'pid=$(cat /tmp/openwebui-capture-task-5.1.pid); kill $pid; rm -f /tmp/openwebui-capture-task-5.1.pid /tmp/redacting_capture.py'"
+    ]
+  },
+  "task_5_1_capture": {
+    "status": "accepted_and_reviewed",
+    "response": "Temporary capture completed without forwarding.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "top_level_fields": {
+        "messages": "array",
+        "model": "string",
+        "stream": "boolean",
+        "tools": "array"
+      },
+      "messages": {
+        "count": 1,
+        "roles": [
+          "user"
+        ],
+        "content_types": [
+          "string"
+        ],
+        "values_captured": false
+      },
+      "tools": {
+        "present": true,
+        "count": 34,
+        "identified_allowlisted_names": [
+          "generate_image"
+        ],
+        "unidentified_name_count": 33,
+        "unidentified_names_reason": "The redaction contract persists only the allowlisted generate_image name; no other arbitrary tool names are retained."
+      },
+      "tool_choice": {
+        "present": false
+      },
+      "stream": {
+        "present": true,
+        "type": "boolean",
+        "value": true
+      },
+      "stream_options": {
+        "present": false
+      },
+      "options": {
+        "present": false
+      },
+      "params": {
+        "present": false
+      },
+      "features": {
+        "present": false
+      },
+      "headers": {
+        "present_names": [
+          "Accept",
+          "Accept-Encoding",
+          "Authorization",
+          "Content-Length",
+          "Content-Type",
+          "Host",
+          "User-Agent"
+        ],
+        "values_captured": false,
+        "trusted_correlation_headers_present": []
+      }
+    },
+    "protocol_conclusion": {
+      "function_calling_mode": "native_wire_proven",
+      "basis": "The Open WebUI-to-backend request carries OpenAI function tool schemas, including generate_image; the per-request params.function_calling selector was consumed internally and was not forwarded.",
+      "legacy_mode": false,
+      "generate_image_injected": true,
+      "tool_choice_forwarded": false,
+      "feature_fields_forwarded": false
+    },
+    "safety": {
+      "accepted_chat_requests": 1,
+      "forwarded": false,
+      "upstream_or_image_service_calls_possible_through_boundary": false,
+      "arbitrary_string_values_persisted": false,
+      "header_values_persisted": false,
+      "raw_content_persisted": false,
+      "identifiers_persisted": false,
+      "temporary_sanitized_output_removed_after_merge": true
+    }
+  },
+  "evidence_scope": {
+    "browser_to_open_webui": {
+      "status": "security_blocked",
+      "proven": [
+        "One authenticated browser chat request completed successfully."
+      ],
+      "not_captured": [
+        "Request body field names and shapes",
+        "Request header names",
+        "Per-request params.function_calling value",
+        "Per-request features.image_generation value"
+      ]
+    },
+    "open_webui_to_rag_backend": {
+      "status": "wire_proven_by_redacting_capture",
+      "proven": [
+        "Top-level request field names and types",
+        "messages roles and content types without values",
+        "stream presence, type, and boolean value",
+        "tools presence and count",
+        "generate_image presence",
+        "tool_choice, stream_options, options, params, and features absence",
+        "Forwarded header names without values",
+        "Trusted correlation header absence"
+      ]
+    },
+    "provider_and_image_execution": {
+      "status": "unproven",
+      "not_proven": [
+        "Provider tool-call conformance",
+        "Provider streamed tool-call indexes, IDs, arguments, finish reasons, continuations, or signatures",
+        "Configured image-engine generation success"
+      ]
+    }
+  },
+  "runtime": {
+    "services": {
+      "open_webui": "running_healthy",
+      "rag_backend": "running",
+      "chroma": "running",
+      "ollama": "running"
+    },
+    "selected_chat_model": "gemini-3.8-flash",
+    "authenticated_role": "admin"
+  },
+  "image_configuration": {
+    "enabled": true,
+    "engine": "gemini",
+    "model": "gemini-3.1-flash-image",
+    "size": "512x512",
+    "prompt_enhancement_enabled": true,
+    "endpoint_method": "generateContent",
+    "api_base_url": "https://generativelanguage.googleapis.com/v1beta",
+    "configured_credential_present": true,
+    "credential_value_captured": false,
+    "admin_permission_result": "allowed",
+    "global_default_permission_features_image_generation": true
+  },
+  "function_calling": {
+    "resolved_mode": "native_wire_proven",
+    "evidence": [
+      "Open WebUI main.py resolves params.function_calling from the request, then model params, then defaults to native (lines 1290-1294 in the v0.11.4 container source).",
+      "The persisted chat has no function_calling override, the admin user settings have no function_calling override, and there is no custom model row for the selected base model.",
+      "The exact browser request body was deliberately not extracted because the preserved DevTools request also contains authentication and private prompt data.",
+      "The later no-forward redacting capture directly observed OpenAI function tool schemas in the Open WebUI-to-backend request, proving the Native tool-schema path without retaining private values."
+    ],
+    "uncertainty": "The browser-side params.function_calling selector was not forwarded, but the backend-bound Native tool-schema structure is directly captured."
+  },
+  "generate_image_injection": {
+    "expected": true,
+    "confidence": "conditional_high",
+    "conditions_observed_or_inferred": {
+      "native_function_calling": "wire_proven_by_backend_bound_tool_schema",
+      "ui_session": "observed_saved_ui_chat_but_session_id_not_wire_captured",
+      "global_image_generation_enabled": true,
+      "image_feature_toggle": "observed_active_in_ui_but_not_persisted_in_chat_record",
+      "admin_permission": true,
+      "model_builtin_tools_capability": "defaults_true_when_unspecified",
+      "model_image_generation_capability": "defaults_true_when_unspecified",
+      "builtin_image_generation_category": "defaults_true_when_unspecified"
+    },
+    "source_gate": "Open WebUI utils/tools.py:get_builtin_tools adds generate_image only when the builtin category, global config, model capability, request feature, and permission gates pass; utils/middleware.py injects returned tool specs for non-legacy UI sessions.",
+    "wire_result": "generate_image_present_once_among_34_tools",
+    "wire_evidence_limitation": "The browser-side feature selector values were not captured and were not forwarded to the backend."
+  },
+  "historical_runtime_rounds": [
+    {
+      "hop": "browser_to_open_webui",
+      "method": "POST",
+      "path": "/api/chat/completions",
+      "count": 1,
+      "status": 200,
+      "evidence": "Preserved browser network metadata and Open WebUI access log",
+      "evidence_scope": "historical interaction before the no-forward redacting capture",
+      "request_shape": {
+        "wire_top_level_fields": "unknown_security_blocked",
+        "persisted_chat_top_level_fields": [
+          "files",
+          "history",
+          "id",
+          "messages",
+          "models",
+          "tags",
+          "timestamp",
+          "title"
+        ],
+        "persisted_models_shape": "array[string]",
+        "persisted_messages_shape": "array[{role:string,content:string}]"
+      }
+    },
+    {
+      "hop": "open_webui_to_rag_backend",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "count": 2,
+      "statuses": [
+        200,
+        200
+      ],
+      "evidence": "RAG backend access log",
+      "evidence_scope": "historical interaction before the no-forward redacting capture",
+      "semantics": "At least one call served the visible chat. The second call cannot be classified as title/task generation or another completion without the redacted body; persisted history proves it was not a completed image-tool continuation.",
+      "request_shape": {
+        "historical_interaction_wire_top_level_fields": "unknown_security_blocked",
+        "later_redacting_capture_evidence": "See task_5_1_capture.request for the wire-proven Open-WebUI-to-RAG request schema, tools, stream value, and header names.",
+        "deployed_backend_accepted_fields": {
+          "model": "string",
+          "messages": "array",
+          "temperature": "number",
+          "stream": "boolean",
+          "top_k": "integer"
+        },
+        "deployed_backend_extra_field_behavior": "Pydantic default ignore; tools, tool_choice, stream_options, feature metadata, and unknown fields are discarded before provider dispatch.",
+        "deployed_provider_payload_fields": {
+          "model": "string",
+          "messages": "array[{role:string,content:string}]",
+          "temperature": "number"
+        }
+      },
+      "response_shape": {
+        "id": "string",
+        "object": "chat.completion",
+        "created": "integer",
+        "model": "string",
+        "choices": "array[{index:integer,message:{role:assistant,content:string},finish_reason:stop}]",
+        "usage": "{prompt_tokens:integer,completion_tokens:integer,total_tokens:integer}",
+        "tool_calls_present": false
+      }
+    },
+    {
+      "hop": "rag_backend_to_gemini_openai_compatibility",
+      "method": "POST",
+      "path": "/v1beta/openai/chat/completions",
+      "count": 2,
+      "statuses": [
+        200,
+        200
+      ],
+      "evidence": "Sanitized backend HTTP client log",
+      "tool_fields_forwarded_by_deployed_code": false
+    },
+    {
+      "hop": "rag_backend_to_chroma",
+      "method": "POST",
+      "operation": "collection_query",
+      "observed": true,
+      "evidence": "Sanitized backend HTTP client log"
+    },
+    {
+      "hop": "open_webui_to_image_engine",
+      "observed_generation_calls": 0,
+      "generate_image_log_mentions": 0,
+      "excluded_from_count": [
+        "image configuration update",
+        "image model listing"
+      ],
+      "evidence": "Open WebUI access/application logs"
+    }
+  ],
+  "headers": {
+    "open_webui_to_rag_backend": {
+      "present_names": [
+        "Accept",
+        "Accept-Encoding",
+        "Authorization",
+        "Content-Length",
+        "Content-Type",
+        "Host",
+        "User-Agent"
+      ],
+      "values_captured": false,
+      "evidence_scope": "no-forward redacting capture",
+      "trusted_correlation": {
+        "forward_user_info_headers_enabled": false,
+        "X-OpenWebUI-Chat-Id": "absent_by_configuration",
+        "X-OpenWebUI-Message-Id": "absent_by_configuration",
+        "custom_header_names": []
+      },
+      "conclusion": "No trusted user/chat/root-message correlation header reached the RAG backend in this capture."
+    },
+    "browser_to_open_webui": {
+      "names": "unknown_security_blocked",
+      "values_captured": false
+    }
+  },
+  "persisted_result": {
+    "history_roles": [
+      "user",
+      "assistant"
+    ],
+    "assistant_content_shape": "string",
+    "assistant_content_nonempty": true,
+    "assistant_has_sources_section": true,
+    "assistant_tool_calls_present": false,
+    "tool_role_messages_present": false,
+    "assistant_files_count": 0,
+    "markdown_image_present": false,
+    "data_image_present": false,
+    "direct_image_url_present": false,
+    "assistant_done": true,
+    "assistant_error_present": false
+  },
+  "historical_failure_signature": {
+    "evidence_scope": "historical interaction before the no-forward redacting capture",
+    "observed": "The explicit grounded-image request produced a grounded Spanish text summary with sources, no structured tool call, no tool-result continuation, no attached/rendered image, and no image-engine invocation.",
+    "proves": [
+      "The deployed text-only RAG path executed and returned a successful textual chat response.",
+      "Open WebUI did not execute generate_image for this interaction.",
+      "The persisted conversation contains no completed native image-tool loop.",
+      "The deployed bridge strips unsupported request fields and constructs provider messages without tools."
+    ],
+    "does_not_prove": [
+      "Whether the selected chat provider can emit conformant streamed tool calls.",
+      "Whether the configured image engine/model/credential can generate successfully.",
+      "Whether the second backend completion was a title/task request or another non-tool completion."
+    ],
+    "later_capture_resolution": "The no-forward redacting capture subsequently proved that Open WebUI injected generate_image in its backend-bound request.",
+    "likely_breakpoint": "The later capture proves Open WebUI injected generate_image, while the deployed bridge's narrow request model ignored tools and its Gemini helper forwarded only model/messages/temperature, so the historical provider request could only return text."
+  },
+  "historical_capture_blocker": {
+    "status": "backend_hop_resolved_browser_hop_security_blocked",
+    "remaining_security_blocked_fields": [
+      "browser-to-Open-WebUI request body field names and shapes",
+      "per-request params.function_calling value",
+      "per-request features.image_generation value",
+      "request header names from the preserved browser request"
+    ],
+    "reason": "The preserved browser-to-Open-WebUI request includes authentication and private prompt data, so its body and headers remain deliberately uninspected.",
+    "safe_resolution_completed": "A pre-approved no-forward redacting boundary captured the later Open-WebUI-to-RAG request's top-level schema, tools/generate_image, stream value, and header names without persisting private values.",
+    "still_unproven": [
+      "Provider tool-call conformance",
+      "Configured image-engine generation success"
+    ]
+  },
+  "reproduction": {
+    "safe_steps": [
+      "Use Open WebUI v0.11.4 with the image feature globally enabled and configured; never export credential values.",
+      "Use an admin or a user with features.image_generation permission and a model whose image_generation/builtin_tools gates are enabled or unspecified.",
+      "Use Native function calling and activate the chat Image Generation feature.",
+      "Submit an explicit grounded image request to the deployed text-only RAG bridge.",
+      "Review endpoint/status-only browser and container logs, then inspect the latest persisted chat through an allowlist script that emits only roles, field names, types, counts, and booleans.",
+      "Expect grounded text with sources, no tool_calls/tool role/files, and zero image-generation endpoint calls."
+    ],
+    "paid_image_call_required": false
+  }
+}

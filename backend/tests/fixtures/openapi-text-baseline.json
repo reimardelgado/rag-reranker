@@ -1,0 +1,48 @@
+{
+  "paths": {
+    "/v1/models": {
+      "method": "get",
+      "responses": [
+        "200"
+      ]
+    },
+    "/v1/chat/completions": {
+      "method": "post",
+      "request_schema": "ChatCompletionRequest",
+      "responses": [
+        "200",
+        "422"
+      ]
+    }
+  },
+  "schemas": {
+    "ChatCompletionRequest": {
+      "required": [
+        "messages"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": "gemini-3.8-flash"
+        },
+        "messages": {
+          "type": "array"
+        },
+        "temperature": {
+          "type": "number",
+          "default": 0.6
+        },
+        "stream": {
+          "type": "boolean",
+          "default": false
+        },
+        "top_k": {
+          "type": "integer",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 50
+        }
+      }
+    }
+  }
+}

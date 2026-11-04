@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "task": "5.2",
+  "provider_family": "gemini-openai-compatible-chat",
+  "captured_at": "2026-10-30",
+  "safe_to_commit": true,
+  "scope": {
+    "chat_endpoint_only": true,
+    "custom_function_name": "capture_probe",
+    "image_generation_invoked": false,
+    "external_image_url_used": false,
+    "rag_invoked": false,
+    "raw_provider_payload_persisted": false
+  },
+  "call_accounting": {
+    "total_real_calls": 10,
+    "credential_health_calls": 1,
+    "chat_conformance_calls": 9,
+    "continuation_calls": 1,
+    "retries_after_auth_or_rate_limit": 0
+  },
+  "credential_health": {
+    "credential_present": true,
+    "http_status": 200,
+    "status_category": "success"
+  },
+  "batches": [
+    {
+      "purpose": "request-shape-preflight",
+      "model_source": "missing-environment-override",
+      "call_count": 3,
+      "results": {
+        "non_stream_tool_call": {
+          "http_status": 400,
+          "status_category": "client_error"
+        },
+        "stream_tool_call": {
+          "http_status": 400,
+          "status_category": "client_error",
+          "error_mentions_thought_signature": false
+        },
+        "multimodal": {
+          "http_status": 400,
+          "status_category": "client_error"
+        },
+        "tool_result_continuation": {
+          "attempted": false,
+          "blocker": "no_assistant_tool_call"
+        }
+      }
+    },
+    {
+      "purpose": "configured-backend-default-model",
+      "model_source": "backend_default",
+      "call_count": 3,
+      "results": {
+        "non_stream_tool_call": {
+          "http_status": null,
+          "status_category": "transport_error",
+          "tool_call_shape_observed": false
+        },
+        "stream_tool_call": {
+          "http_status": null,
+          "status_category": "transport_error",
+          "tool_delta_shape_observed": false,
+          "error_mentions_thought_signature": false
+        },
+        "multimodal": {
+          "http_status": 503,
+          "status_category": "provider_error",
+          "input_kind": "in_memory_data_url",
+          "response_shape_observed": false
+        },
+        "tool_result_continuation": {
+          "attempted": false,
+          "blocker": "no_assistant_tool_call"
+        }
+      }
+    },
+    {
+      "purpose": "final-openai-native-comparison",
+      "model_source": "backend_default",
+      "call_count": 3,
+      "results": {
+        "openai_compatible_non_stream": {
+          "http_status": 200,
+          "status_category": "success",
+          "tool_calls_present": true,
+          "tool_call_count": 1,
+          "id_present_and_string": true,
+          "function_name_matches": true,
+          "arguments_type": "str",
+          "arguments_valid_json": true,
+          "arguments_schema_valid": true,
+          "finish_reason": "tool_calls",
+          "thought_signature_location_present": true,
+          "thought_signature_type": "str"
+        },
+        "native_function_call": {
+          "http_status": 200,
+          "status_category": "success",
+          "function_call_present": true,
+          "function_call_count": 1,
+          "function_name_matches": true,
+          "arguments_type": "dict",
+          "arguments_schema_valid": true,
+          "finish_reason": "STOP",
+          "thought_signature_present": true,
+          "thought_signature_type": "str"
+        },
+        "native_continuation": {
+          "attempted": true,
+          "http_status": 200,
+          "status_category": "success",
+          "exact_signature_held_and_returned_in_memory": true,
+          "final_model_content_present": true,
+          "text_part_present": true,
+          "additional_function_call_present": false,
+          "finish_reason": "STOP"
+        }
+      }
+    }
+  ],
+  "direct_adapter_criteria": {
+    "non_stream_tool_call": {
+      "status": "passed",
+      "tool_calls_present": true,
+      "finish_reason_tool_calls": true,
+      "id_present_and_string": true,
+      "function_name_matches_allowlist": true,
+      "arguments_valid_json_and_schema": true
+    },
+    "stream_tool_call": {
+      "status": "not_evidenced",
+      "delta_order_valid": null,
+      "every_tool_delta_has_index": null,
+      "stable_index": null,
+      "stable_id": null,
+      "stable_name": null,
+      "assembled_arguments_valid": null,
+      "terminal_finish_reason_tool_calls": null,
+      "done_semantics_valid": null
+    },
+    "tool_result_continuation": {
+      "status": "not_run_openai_compatible",
+      "matching_tool_call_id": null,
+      "final_assistant_shape_valid": null
+    },
+    "thought_signature": {
+      "status": "presence_evidenced",
+      "presence_category": "extra_content_google_thought_signature_string",
+      "round_trip_category": "not_run_openai_compatible"
+    },
+    "multimodal_fidelity": {
+      "status": "failed",
+      "input_accepted": false,
+      "response_shape_valid": null
+    }
+  },
+  "native_adapter_criteria": {
+    "function_call": {
+      "status": "passed",
+      "function_name_matches_allowlist": true,
+      "arguments_valid_schema": true
+    },
+    "thought_signature": {
+      "status": "passed",
+      "presence_category": "native_part_string",
+      "exact_in_memory_round_trip": true
+    },
+    "function_result_continuation": {
+      "status": "passed",
+      "provider_accepted": true,
+      "final_model_content_present": true,
+      "text_part_present": true,
+      "additional_function_call_present": false
+    }
+  },
+  "feasibility": {
+    "openai_compatible_direct_adapter": "not_fully_qualified",
+    "openai_compatible_reason": "stream_continuation_and_multimodal_requirements_not_evidenced",
+    "native_gemini_adapter": "feasible",
+    "native_reason": "function_call_signature_and_exact_signature_continuation_passed"
+  },
+  "gate_result": {
+    "task_complete": true,
+    "direct_gemini_adapter_pass": false,
+    "native_gemini_adapter_feasible": true,
+    "compatibility_conclusion": "native_adapter_feasible_direct_openai_adapter_not_fully_qualified",
+    "provider_decision_performed": false
+  },
+  "redaction": {
+    "contains_credentials": false,
+    "contains_bearer_values": false,
+    "contains_raw_prompts": false,
+    "contains_raw_provider_text": false,
+    "contains_raw_arguments": false,
+    "contains_opaque_ids": false,
+    "contains_thought_signature_values": false,
+    "contains_user_data": false
+  }
+}

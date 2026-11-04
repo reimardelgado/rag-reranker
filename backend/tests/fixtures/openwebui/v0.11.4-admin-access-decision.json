@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "openwebui_version": "v0.11.4",
+  "export_policy": {
+    "values_captured": false,
+    "identifiers_captured": false,
+    "prompts_or_evidence_captured": false,
+    "credential_presence_only": true
+  },
+  "observed_admin_state": {
+    "global_image_generation_enabled": true,
+    "global_default_image_permission": true,
+    "native_function_tools_wire_proven": true,
+    "generate_image_occurrences": 1,
+    "image_engine_configured": true,
+    "image_credential_present": true,
+    "image_generation_calls_observed": 0,
+    "trusted_identity_headers_forwarded": false,
+    "trusted_service_auth_forwarded": false,
+    "explicit_canary_user_scope_proven": false,
+    "explicit_canary_model_scope_proven": false
+  },
+  "required_gates": {
+    "least_privilege_rbac": "fail",
+    "explicit_model_capabilities": "unproven",
+    "native_tool_schema": "pass",
+    "single_generate_image_tool": "pass",
+    "image_engine_configuration": "configured_not_exercised",
+    "per_chat_image_toggle": "unproven",
+    "trusted_identity_delivery": "fail",
+    "trusted_service_authentication": "fail",
+    "backend_image_composition": "inactive",
+    "adjacent_provenance": "implemented_inactive",
+    "single_replica_only": "pass",
+    "redis_multi_replica": "no_go"
+  },
+  "decision": {
+    "status": "no_go",
+    "authorized_canary_only": true,
+    "current_environment_enabled": false,
+    "paid_generation_approved": false,
+    "text_chat_rollback_required": true,
+    "reason_codes": [
+      "CANARY_SCOPE_UNPROVEN",
+      "TRUSTED_IDENTITY_NOT_FORWARDED",
+      "TRUSTED_SERVICE_AUTH_NOT_FORWARDED",
+      "BACKEND_IMAGE_COMPOSITION_INACTIVE",
+      "IMAGE_ENGINE_NOT_EXERCISED"
+    ]
+  }
+}

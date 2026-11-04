@@ -42,8 +42,8 @@ Sistema RAG (Retrieval-Augmented Generation) con búsqueda híbrida (densa + lé
 ## 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/Diomaris/rag-hybrid-reranker-project.git
-cd rag-hybrid-reranker-project
+git clone https://github.com/reimardelgado/rag-reranker.git
+cd rag-reranker
 ```
 
 ---
@@ -134,6 +134,193 @@ docker compose down
    - **URL:** `https://generativelanguage.googleapis.com/v1beta/openai/`
    - **API Key:** tu `GEMINI_API_KEY`
 4. Guardar
+
+### 5.1 Gate de acceso para imágenes contextualizadas
+
+> **Decisión actual: NO-GO.** La generación de imágenes contextualizadas debe
+> permanecer deshabilitada (`GROUNDED_IMAGE_ENABLED=false`). El backend de
+> producción todavía usa la ruta de texto y la captura redacted de Open WebUI
+> v0.11.4 no demostró el envío de identidad confiable de usuario/chat/mensaje.
+> La evidencia administrativa sin valores privados está en
+> `backend/tests/fixtures/openwebui/v0.11.4-admin-access-decision.json`.
+
+Open WebUI conserva la responsabilidad sobre RBAC, capacidades, credenciales
+del motor de imágenes, archivos y UI. Una futura habilitación se limita a un
+**canary explícitamente autorizado** y requiere que un administrador verifique
+todos estos controles sin exportar identificadores, tokens, prompts ni claves:
+
+1. **RBAC de mínimo privilegio:** usar un usuario canary no administrador con el
+   permiso de generación de imágenes; mantener denegado el permiso global por
+   defecto para los demás usuarios.
+2. **Capacidades del modelo:** autorizar solamente el modelo canary y comprobar
+   `builtin_tools` e `image_generation` de forma explícita. No depender de
+   valores implícitos para aprobar el rollout.
+3. **Herramientas nativas:** seleccionar el modo Native y comprobar, mediante
+   una captura no-forward con redacción, que `generate_image` aparece una sola
+   vez en el request dirigido al backend.
+4. **Motor y toggle:** configurar el motor/modelo de imagen en Open WebUI, pero
+   activar el toggle de Image Generation únicamente en el chat canary. La
+   presencia de una credencial se registra sólo como booleano; su valor nunca
+   se exporta.
+5. **Frontera autenticada:** entregar por una conexión privada los headers de
+   usuario, chat y mensaje raíz junto con el token de servicio independiente.
+   Los nombres esperados son `X-OpenWebUI-User-Id`,
+   `X-OpenWebUI-Chat-Id`, `X-OpenWebUI-Message-Id` y
+   `X-RAG-Service-Token`; sus valores no deben aparecer en logs o exports.
+6. **Allowlist y réplica:** hacer coincidir usuario y modelo con las allowlists
+   del backend y mantener exactamente una réplica. El modo multi-réplica sigue
+   siendo **NO-GO** hasta aprobar el spike Redis distribuido.
+7. **Provenance y rollback:** exigir provenance adyacente antes de habilitar.
+   Ante cualquier gate ausente, desactivar `GROUNDED_IMAGE_ENABLED`, retirar el
+   toggle/capacidad canary y conservar el chat de texto.
+
+La configuración se aprueba sólo cuando un export administrativo redacted
+demuestra todos los gates con `authorized_canary_only=true`. El export debe
+contener únicamente versión, booleanos, conteos, nombres de controles y estado
+GO/NO-GO. No puede contener IDs de usuario/chat/modelo, auth, credenciales,
+prompts, evidencia ni firmas privadas del proveedor. Configurar el motor o
+observar `generate_image` **no** equivale a aprobar generación paga.
+
+#### Contrato de configuración y puesta en marcha segura
+
+La plantilla `.env.example` es normativa y **no es una receta de activación**.
+Los booleanos aceptan exclusivamente `true` o `false`; valores ambiguos impiden
+iniciar la configuración. Las allowlists son listas separadas por comas, sin
+espacios, entradas vacías ni duplicados. Con el modo deshabilitado, mantené
+vacías las allowlists y las dos credenciales de correlación.
+
+Antes de una futura habilitación, además de aprobar el gate anterior, se deben
+cumplir simultáneamente estas invariantes:
+
+- `GROUNDED_IMAGE_TRUSTED_BOUNDARY=true`,
+  `GROUNDED_IMAGE_PROVENANCE_ENABLED=true` y adaptador
+  `GROUNDED_IMAGE_ADAPTER=gemini_native`.
+- Allowlist no vacía para el único usuario canary y el único modelo canary.
+- `RAG_TRUSTED_SERVICE_TOKEN` independiente de 32-512 bytes y
+  `RAG_CORRELATION_HMAC_KEY` independiente de 32-128 bytes aleatorios en
+  base64url. Ambos se inyectan desde un gestor de secretos; nunca se copian a
+  Git, tickets, comandos compartidos, métricas, logs o exports.
+- Mínimo de dos referencias distintas; TTL no deslizante de 600 segundos;
+  paquete máximo de 262144 bytes; identificadores de hasta 1024 bytes; máximo
+  exacto de tres iteraciones de herramientas; exactamente una réplica.
+
+Sólo después de comprobar esas precondiciones de manera redacted se puede
+considerar cambiar `GROUNDED_IMAGE_ENABLED=true`. Aun así, el estado actual del
+repositorio es **inactivo**: `backend/app.py` no compone grounding, correlación,
+enforcement ni generación. Por lo tanto, editar variables por sí solo NO
+habilita ni autoriza una llamada paga.
+
+#### Contrato de chat y errores recuperables
+
+El contrato versionado está en `backend/rag-backend-openapi.yaml`. El endpoint
+OpenAI-compatible es `POST /v1/chat/completions` (con alias
+`/chat/completions`) y conserva mensajes de sistema/usuario/asistente/tool,
+`tools`, `tool_choice`, campos soportados adicionales y partes multimodales.
+La recuperación deriva texto exclusivamente del último turno de usuario sin
+mutar el payload. Un turno sólo con adjuntos devuelve un error recuperable y
+nunca dispara generación sin evidencia.
+
+Cuando el adaptador opcional está compuesto, los errores usan un envelope
+OpenAI-compatible acotado, con `error.message`, `error.type`, `error.code` y un
+`request_id` opaco. En SSE, un fallo posterior al inicio se entrega como evento
+de error y termina una sola vez con `[DONE]`. Los códigos normativos son:
+
+| HTTP | Código | Acción segura |
+|------|--------|---------------|
+| 401 | `AUTH_REQUIRED` | Rechazar identidad/token ausente o inválido; no recuperar ni llamar proveedores. |
+| 403 | `FORBIDDEN` | Rechazar permiso, capability, toggle, usuario o modelo fuera de allowlist. |
+| 409 | `IMAGE_DISABLED`, `UNSUPPORTED_TOOL` | Mantener el flujo de imagen cerrado; no degradar a generación libre. |
+| 409 | `STATE_EXPIRED`, `LOOP_LIMIT`, `DUPLICATE_SUPPRESSED` | Detener la continuación o duplicado sin repetir recuperación ni llamada paga. |
+| 422 | `NO_IMAGE_EVIDENCE`, `INVALID_GROUNDING`, `INVALID_TOOL_CALL` | Rechazar evidencia, prompt o tool call inválido antes de emitir `generate_image`. |
+| 429 | `RATE_LIMITED` | Propagar throttling recuperable sin reintento automático de generación paga. |
+| 502 | `PROVIDER_UNAVAILABLE`, `PROVIDER_INCOMPATIBLE` | Fallar cerrado ante 5xx o protocolo no conforme. |
+| 504 | `PROVIDER_TIMEOUT` | Cancelar/cerrar el iterador sin convertir el fallo en éxito. |
+
+Estos códigos documentan el límite de protocolo; no afirman que el flujo de
+imagen esté activo. Los errores legacy de texto pueden conservar el envelope
+FastAPI `detail` hasta que se componga explícitamente el adaptador aprobado.
+
+#### Seguridad, redacción y rollback
+
+- La evidencia se trata como datos JSON no confiables y acotados, nunca como
+  política, configuración de herramientas o instrucciones ejecutables.
+- No se registran ni persisten tokens, claves HMAC, valores de headers
+  confiables, IDs crudos, prompts, chunks de evidencia, resultados de tools,
+  datos de usuario ni firmas privadas del proveedor.
+- La provenance pública contiene sólo hash/versión del prompt, referencias
+  fuente/página, elementos documentados/inferidos/inciertos/prohibidos, IDs
+  públicos de modelos y timestamp UTC. Debe aparecer junto a
+  **“Interpretive reconstruction”** y la advertencia de que los píxeles
+  generados no son evidencia documental.
+- La correlación usa HMAC sobre la tupla confiable usuario/chat/mensaje raíz,
+  caché LRU/TTL acotada e idempotencia; nunca confía en IDs del body.
+- El proceso local no garantiza atomicidad entre réplicas. El despliegue de
+  imágenes con más de una réplica permanece **NO-GO** hasta que pase el spike
+  Redis de dos workers definido en `docs/redis-correlation-decision.md`.
+
+**Rollback inmediato:** establecer `GROUNDED_IMAGE_ENABLED=false`, retirar el
+toggle/capability del chat canary, vaciar las allowlists y revocar las dos
+credenciales de correlación. El chat de texto debe seguir disponible. No se
+requiere borrar ni modificar credenciales del motor de imágenes administradas
+por Open WebUI para que el backend vuelva al modo text-only.
+
+#### Observabilidad, shadow y SLOs del canary
+
+`backend/metrics.py` define el contrato de observabilidad **inactivo** y de
+cardinalidad fija. `backend/app.py` no lo compone: agregar métricas no habilita
+grounding, tools ni generación. El snapshot de dashboard contiene únicamente
+contadores agregados por etapa/resultado y buckets de latencia; no acepta ni
+expone IDs crudos, valores de headers confiables, auth, tokens, claves HMAC,
+prompts, evidencia, datos de usuario, resultados de tools o firmas privadas.
+
+El dashboard de una futura ventana debe mostrar, como mínimo:
+
+- requests de texto e intent de imagen; decisiones eligible/refused/denied/invalid;
+- fallos de validación, correlación, expiración, aislamiento, loop e idempotencia;
+- duplicados suprimidos y cualquier violación de llamada paga duplicada;
+- outcomes acotados del proveedor: success/timeout/rate-limited/unavailable/incompatible;
+- p95 por buckets de texto total, retrieval, rerank, grounding warm,
+  continuación cacheada, primer byte, primer tool call y ejecución de imagen;
+- eventos agregados del kill switch y disponibilidad de texto durante rollback.
+
+**Shadow obligatorio y sin costo.** Mantener `GROUNDED_IMAGE_ENABLED=false` y
+evaluar localmente el intent, recuperación y validación sin emitir tools, sin
+contactar al proveedor y sin invocar el motor de imágenes. Una ventana es
+inspeccionable recién con al menos 100 intents de imagen y 1000 requests de texto,
+cero llamadas al proveedor o motor de imágenes, cero intentos pagos,
+cero fallos de paridad de texto y cero violaciones de aislamiento. Cualquier
+incumplimiento invalida la ventana; no se reetiqueta como éxito.
+
+Los SLOs normativos para un canary futuro son:
+
+- cero fugas entre usuarios, cero llamadas pagas duplicadas y cero retrievals
+  repetidos dentro de la misma continuación cacheada;
+- 100% de grounding inválido bloqueado antes de emitir `generate_image`;
+- regresión p95 de texto <= 200 ms **o** <= 10% respecto del baseline redacted;
+- p95 de grounding warm <= 3000 ms;
+- p95 de continuación cacheada <= 100 ms, con cero retrieval adicional;
+- p95 del primer tool call <= 5000 ms, excluyendo la generación de imagen.
+
+Una evaluación canary exige, además, al menos 20 resultados de imagen aprobados
+y 500 requests de texto en la ventana, RBAC/capability/toggle y allowlists
+aprobados, identidad y servicio confiables probados, provenance adyacente,
+adaptador nativo, composición productiva revisada, una sola réplica (o spike
+Redis aprobado), smoke pago explícitamente autorizado y drill de rollback
+aprobado. Los conteos son mínimos de evidencia, no autorización para ejecutar.
+
+**Drill de rollback y kill switch:** antes de cualquier canary, registrar en el
+dashboard el request de rollback, poner `GROUNDED_IMAGE_ENABLED=false`, retirar
+toggle/capability y allowlists canary, revocar las credenciales de correlación y
+comprobar que (1) nuevos intents de imagen no llegan a retrieval/proveedor, (2)
+no aumenta ningún contador de generación paga y (3) el chat de texto sigue
+respondiendo dentro de su SLO. Si falta una de esas tres pruebas, el drill falla
+y el gate queda NO-GO. No se guardan requests ni valores privados como evidencia.
+
+**Resultado actual: NO-GO operativo.** No existen ventanas shadow/canary ni drill
+de rollback observados; el acceso confiable continúa fallando, la composición
+productiva está inactiva, paid generation no está aprobada y multi-réplica sigue
+bloqueado por Redis. Conservar text-only. **No ejecutar el smoke pago de 12.3**
+hasta una aprobación separada y explícita.
 
 ---
 
@@ -287,7 +474,7 @@ En Open WebUI, selecciona el modelo descargado desde el selector superior del ch
 ## 12. Estructura del proyecto
 
 ```
-rag-hybrid-reranker-project/
+rag-reranker/
 ├── backend/
 │   ├── app.py                  # Backend FastAPI principal
 │   ├── ingest_ocr_batch.py     # Ingesta PDF con OCR avanzado
