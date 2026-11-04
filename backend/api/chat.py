@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 try:
@@ -386,6 +386,9 @@ class ChatDependencies:
     logger: object
     provider_adapter: ProviderAdapter | None = None
     response_normalizer: OpenAIResponseNormalizer | None = None
+    # Optional ``GroundedImageOrchestrator`` (duck-typed to avoid an import
+    # cycle).  ``None`` keeps the established text-only route unchanged.
+    image_orchestrator: object | None = None
 
 
 @dataclass(frozen=True)
@@ -463,6 +466,63 @@ async def _close_iterator(iterator: object) -> None:
         await close()
 
 
+async def _replay(events: list[ProviderEvent]) -> AsyncIterator[ProviderEvent]:
+    for event in events:
+        yield event
+
+
+async def _image_response(
+    orchestrator: object,
+    route: str,
+    req: ChatCompletionRequest,
+    headers: object,
+    normalizer: OpenAIResponseNormalizer,
+):
+    """Run one fully validated image round, then serialize it.
+
+    The orchestrator returns the complete validated turn before any byte is
+    sent, so every image failure is a bounded OpenAI error response rather
+    than a partially streamed or unconstrained result.
+    """
+
+    response_id = normalizer.new_response_id()
+    try:
+        if route == "image_start":
+            events = await orchestrator.start(req, headers)
+        else:
+            events = await orchestrator.continue_(req, headers)
+    except ProviderError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            content=_openai_error(error, response_id),
+        )
+    if req.stream:
+        normalized = normalizer.stream(
+            _replay(events), model=req.model, response_id=response_id
+        )
+
+        async def stream_body() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in normalized:
+                    yield chunk
+            except ProviderError as error:
+                yield normalizer._sse(_openai_error(error, response_id))
+                yield normalizer._sse("[DONE]")
+            finally:
+                await _close_iterator(normalized)
+
+        return StreamingResponse(stream_body(), media_type="text/event-stream")
+    try:
+        return await normalizer.non_stream(
+            _replay(events), model=req.model, response_id=response_id
+        )
+    except ProviderError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            content=_openai_error(error, response_id),
+        )
+
+
 def create_chat_router(
     dependencies: ChatDependencies,
     *,
@@ -488,7 +548,22 @@ def create_chat_router(
 
     @router.post("/v1/chat/completions")
     @router.post("/chat/completions")
-    async def openai_chat_completions(req: ChatCompletionRequest):
+    async def openai_chat_completions(
+        req: ChatCompletionRequest, http_request: Request = None
+    ):
+        orchestrator = dependencies.image_orchestrator
+        if orchestrator is not None:
+            route = getattr(orchestrator.route(req), "value", "text")
+            if route != "text":
+                return await _image_response(
+                    orchestrator,
+                    route,
+                    req,
+                    http_request.headers if http_request is not None else {},
+                    dependencies.response_normalizer or OpenAIResponseNormalizer(),
+                )
+            orchestrator.observe_text_request(req)
+
         query = extract_user_query(req.messages)
         if not query:
             raise HTTPException(

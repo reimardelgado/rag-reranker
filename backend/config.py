@@ -86,6 +86,25 @@ def _allowlist(
     return frozenset(items)
 
 
+def _bounded_text(
+    environ: Mapping[str, str], name: str, default: str, *, max_bytes: int = 256
+) -> str:
+    value = environ.get(name)
+    if value is None or value == "":
+        return default
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or any(ord(character) < 0x21 or ord(character) == 0x7F for character in value)
+        or len(value.encode("utf-8")) > max_bytes
+    ):
+        raise ConfigurationError(f"{name} is malformed.")
+    return value
+
+
+CORRELATION_SCOPES = frozenset({"message", "chat"})
+
+
 def _secret(environ: Mapping[str, str], name: str) -> str | None:
     value = environ.get(name)
     if value is None or value == "":
@@ -121,6 +140,7 @@ class GroundedImageConfig:
     """Strict default-deny configuration for the future image composition root."""
 
     enabled: bool = False
+    shadow: bool = False
     trusted_boundary: bool = False
     provenance_enabled: bool = False
     adapter: str = "gemini_native"
@@ -135,6 +155,9 @@ class GroundedImageConfig:
     correlation_max_identifier_bytes: int = 1024
     max_tool_iterations: int = 3
     replica_count: int = 1
+    chat_model: str = "gemini-3.8-flash"
+    image_model_id: str = "open-webui-image-engine"
+    correlation_scope: str = "message"
 
     def __post_init__(self) -> None:
         self._validate_activation()
@@ -145,6 +168,7 @@ class GroundedImageConfig:
 
         config = cls(
             enabled=_strict_bool(environ, "GROUNDED_IMAGE_ENABLED", False),
+            shadow=_strict_bool(environ, "GROUNDED_IMAGE_SHADOW", False),
             trusted_boundary=_strict_bool(
                 environ, "GROUNDED_IMAGE_TRUSTED_BOUNDARY", False
             ),
@@ -209,12 +233,27 @@ class GroundedImageConfig:
                 minimum=1,
                 maximum=100_000,
             ),
+            chat_model=_bounded_text(
+                environ, "GROUNDED_IMAGE_CHAT_MODEL", "gemini-3.8-flash"
+            ),
+            image_model_id=_bounded_text(
+                environ, "GROUNDED_IMAGE_IMAGE_MODEL_ID", "open-webui-image-engine"
+            ),
+            correlation_scope=_bounded_text(
+                environ, "GROUNDED_IMAGE_CORRELATION_SCOPE", "message", max_bytes=16
+            ),
         )
         return config
 
     def _validate_activation(self) -> None:
         if not isinstance(self.adapter, str) or self.adapter != "gemini_native":
             raise ConfigurationError("GROUNDED_IMAGE_ADAPTER is unsupported.")
+        if self.correlation_scope not in CORRELATION_SCOPES:
+            raise ConfigurationError("GROUNDED_IMAGE_CORRELATION_SCOPE is unsupported.")
+        if self.enabled and self.shadow:
+            raise ConfigurationError(
+                "Image mode and shadow mode are mutually exclusive."
+            )
         if not self.enabled:
             return
         if not self.trusted_boundary:

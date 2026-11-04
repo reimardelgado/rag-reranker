@@ -22,6 +22,7 @@ import threading
 
 try:
     from backend import retrieval as retrieval_core
+    from backend.api.composition import build_grounded_image_composition
     from backend.api.chat import (
         ChatDependencies,
         ChatCompletionRequest,
@@ -33,6 +34,7 @@ try:
     )
 except ImportError:  # Docker runs this module as top-level ``app``.
     import retrieval as retrieval_core
+    from api.composition import build_grounded_image_composition
     from api.chat import (
         ChatDependencies,
         ChatCompletionRequest,
@@ -633,6 +635,18 @@ def _retrieve_chat_blocks(query: str, top_k: int) -> list:
     )
 
 
+# Grounded image generation is composed only when GROUNDED_IMAGE_ENABLED or
+# GROUNDED_IMAGE_SHADOW is true; otherwise both values are None and the text
+# route is unchanged.  Configuration is parsed strictly at startup.
+image_orchestrator, image_metrics_router = build_grounded_image_composition(
+    os.environ,
+    retrieve_blocks=lambda query, top_k: _retrieve_chat_blocks(query, top_k),
+    retrieval_model_id=EMBED_MODEL,
+    api_key=GEM_KEY,
+)
+if image_orchestrator is not None:
+    logger.info("[grounded-image] composed (stage=%s)", image_orchestrator.metrics.stage.value)
+
 chat_routes = create_chat_router(
     ChatDependencies(
         get_gemini_models=lambda: _get_gemini_models(),
@@ -646,11 +660,14 @@ chat_routes = create_chat_router(
             model, prompt, temperature
         ),
         logger=logger,
+        image_orchestrator=image_orchestrator,
     ),
     default_model=DEFAULT_GEMINI_MODEL,
     default_top_k=DEFAULT_TOP_K,
 )
 app.include_router(chat_routes.router)
+if image_metrics_router is not None:
+    app.include_router(image_metrics_router)
 
 # Keep legacy imports used by scripts and tests while route ownership lives in
 # backend.api.chat.
