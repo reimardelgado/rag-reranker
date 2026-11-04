@@ -26,6 +26,8 @@ from enum import Enum
 import hashlib
 import json
 import re
+import secrets
+import threading
 import time
 from typing import Any, Protocol
 
@@ -226,6 +228,16 @@ _RENDER_POLICY = (
 )
 
 
+_PRESENCE_FIELDS = (
+    "requests_observed",
+    "user_id",
+    "chat_id",
+    "message_id",
+    "bearer",
+    "service_token_valid",
+)
+
+
 def _render_user_message(canonical_json: str) -> str:
     return (
         "Render the interpretive reconstruction described by this validated "
@@ -257,6 +269,8 @@ class GroundedImageOrchestrator:
         self._runtime = runtime
         self._config = runtime.config
         self._metrics = runtime.metrics
+        self._presence_lock = threading.Lock()
+        self._presence = {name: 0 for name in _PRESENCE_FIELDS}
         self._gate = GroundedImageAccessGate(self._config)
         self._state: CorrelationStateStore | None = None
         self._execution: CorrelationExecutionStore | None = None
@@ -301,6 +315,39 @@ class GroundedImageOrchestrator:
         if classify_image_intent(extract_user_query(request.messages)) is ImageIntent.EXPLICIT:
             return ChatRoute.IMAGE_START
         return ChatRoute.TEXT
+
+    def observe_headers(self, headers: Mapping[str, str] | None) -> None:
+        """Count trusted-header *presence* only; values are never retained.
+
+        Used to verify, without logging identities or tokens, that Open WebUI
+        forwards the identity headers and the service bearer (runbook phase 1).
+        """
+
+        normalized = {}
+        for name, value in (headers or {}).items():
+            if isinstance(name, str) and isinstance(value, str):
+                normalized.setdefault(name.casefold(), value)
+        bearer = _BEARER.match(normalized.get("authorization", ""))
+        token = normalized.get(_SERVICE_TOKEN_HEADER) or (bearer.group("token") if bearer else None)
+        expected = self._config.service_token
+        observed = {
+            "requests_observed": True,
+            "user_id": bool(normalized.get(_USER_HEADER)),
+            "chat_id": bool(normalized.get(_CHAT_HEADER)),
+            "message_id": bool(normalized.get(_MESSAGE_HEADER)),
+            "bearer": bearer is not None,
+            "service_token_valid": bool(
+                token and expected and secrets.compare_digest(token, expected)
+            ),
+        }
+        with self._presence_lock:
+            for name, present in observed.items():
+                if present:
+                    self._presence[name] += 1
+
+    def header_presence(self) -> dict[str, int]:
+        with self._presence_lock:
+            return dict(self._presence)
 
     def observe_text_request(self, request: ChatCompletionRequest) -> None:
         """Count text traffic and evaluate image intent in shadow mode.

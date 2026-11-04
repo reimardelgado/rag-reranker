@@ -465,3 +465,20 @@ async def test_shadow_env_composes_metrics_without_adapter(shadow_app_module):
     assert shadow_app_module.image_orchestrator is not None
     assert shadow_app_module.image_orchestrator.metrics.stage is RolloutStage.SHADOW
     assert await _metrics_status(shadow_app_module) == 200
+
+
+@pytest.mark.asyncio
+async def test_header_presence_counts_without_retaining_values():
+    app, _, _, orchestrator, _, _ = _build(_config(enabled=False, shadow=True, service_token=SERVICE_TOKEN))
+    await _post(app, _round_one(text="hola"), _headers(message=None))
+    await _post(app, _round_one(text="hola"), {"Authorization": "Bearer dummy"})
+    presence = orchestrator.header_presence()
+    assert presence == {
+        "requests_observed": 2,
+        "user_id": 1,
+        "chat_id": 1,
+        "message_id": 0,
+        "bearer": 2,
+        "service_token_valid": 1,
+    }
+    assert SERVICE_TOKEN not in repr(presence) and USER not in repr(presence)

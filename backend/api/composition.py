@@ -43,6 +43,8 @@ def _metrics_router(orchestrator: GroundedImageOrchestrator) -> APIRouter:
                 "outcome": decision.outcome,
                 "blockers": list(decision.blockers),
             },
+            # Counts of requests carrying each trusted header; never values.
+            "trusted_header_presence": orchestrator.header_presence(),
         }
 
     return router

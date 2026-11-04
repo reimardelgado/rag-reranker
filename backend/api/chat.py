@@ -553,6 +553,9 @@ def create_chat_router(
     ):
         orchestrator = dependencies.image_orchestrator
         if orchestrator is not None:
+            orchestrator.observe_headers(
+                http_request.headers if http_request is not None else {}
+            )
             route = getattr(orchestrator.route(req), "value", "text")
             if route != "text":
                 return await _image_response(
