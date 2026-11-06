@@ -66,6 +66,35 @@ def _install_import_fakes(monkeypatch):
         monkeypatch.setitem(sys.modules, name, module)
 
 
+# Rollout and trust settings that a developer's real .env may define. Tests must
+# see the code defaults unless they set a value explicitly.
+_ISOLATED_ENV_PREFIXES = (
+    "GROUNDED_IMAGE_",
+    "RAG_TRUSTED_",
+    "RAG_CORRELATION_",
+    "OPENWEBUI_",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_from_dotenv(monkeypatch):
+    """Keep the local .env out of the tests.
+
+    ``load_dotenv()`` runs when ``backend.config`` and ``backend.app`` are
+    imported, so a developer's .env (for example ``GROUNDED_IMAGE_SHADOW=true``
+    during the shadow phase) would otherwise leak into os.environ and change the
+    composition the tests observe.
+    """
+    import os
+
+    import dotenv
+
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: False)
+    for name in list(os.environ):
+        if name.startswith(_ISOLATED_ENV_PREFIXES):
+            monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def app_module(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "offline-test-key")
