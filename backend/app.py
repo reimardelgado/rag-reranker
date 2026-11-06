@@ -84,6 +84,10 @@ RERANKER_MODEL       = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
 RERANKER_TOP_K       = int(os.getenv("RERANKER_TOP_K", "6"))
 RERANKER_MAXLEN      = int(os.getenv("RERANKER_MAXLEN", "512"))
 ENABLE_WATCHER       = os.getenv("ENABLE_WATCHER", "false").lower() == "true"
+# BM25 vive en memoria: se construye al arrancar y tras cada ingesta.
+# BM25_CAP limita los fragmentos indexados (0 = sin límite).
+ENABLE_BM25_AUTOBUILD = os.getenv("ENABLE_BM25_AUTOBUILD", "true").lower() == "true"
+BM25_CAP             = int(os.getenv("BM25_CAP", "50000"))
 
 if not GEM_KEY:
     raise RuntimeError("Falta GEMINI_API_KEY en el entorno")
@@ -418,13 +422,29 @@ async def call_llm_with_fallback(model: str, prompt: str,
 def _tok(s: str) -> list:
     return retrieval_core.tokenize(s)
 
-def build_bm25_from_chroma(batch: int = 1000, cap: Optional[int] = 8000) -> int:
+def build_bm25_from_chroma(batch: int = 1000, cap: Optional[int] = None) -> int:
     global LEX_CORPUS, LEX_META, BM25
-    LEX_CORPUS, LEX_META, BM25 = [], [], None
-    LEX_CORPUS, LEX_META, BM25 = retrieval_core.build_bm25_from_collection(
+    cap = (BM25_CAP or None) if cap is None else (cap or None)
+    corpus, meta, index = retrieval_core.build_bm25_from_collection(
         collection, BM25Okapi, batch=batch, cap=cap
     )
-    return len(LEX_CORPUS)
+    # Swap all three at once so concurrent queries never see a half-built index.
+    LEX_CORPUS, LEX_META, BM25 = corpus, meta, index
+    if cap and len(corpus) >= cap:
+        logger.warning(
+            f"[BM25] Se alcanzó BM25_CAP={cap}: hay fragmentos sin indexar léxicamente."
+        )
+    return len(corpus)
+
+
+def _rebuild_bm25_safely(reason: str) -> None:
+    """Rebuild BM25 without ever failing the caller (startup or ingest)."""
+    t0 = time.time()
+    try:
+        docs = build_bm25_from_chroma()
+        logger.info(f"[BM25] Índice listo ({reason}): {docs} fragmentos en {time.time() - t0:.2f}s")
+    except Exception as e:
+        logger.warning(f"[BM25] No se pudo construir el índice ({reason}): {e}")
 
 # ================== Recuperación por fases (garantizada) ==================
 def fetch_phase_blocks(phases: list = [1, 2, 3, 4],
@@ -482,7 +502,10 @@ async def ingest_pdf(file: UploadFile = File(...), ocr: bool = Form(False)):
     )
     page_count = len(doc)
     doc.close()
-    return {"ok": True, "pages": page_count, "chunks": len(documents)}
+    if ENABLE_BM25_AUTOBUILD:
+        _rebuild_bm25_safely(f"ingesta de {file.filename}")
+    return {"ok": True, "pages": page_count, "chunks": len(documents),
+            "bm25_docs_indexed": len(LEX_CORPUS)}
 
 # ---------- Retrieve (denso) ----------
 @app.post("/retrieve", operation_id="rag_retrieve")
@@ -584,12 +607,13 @@ def retrieve_hybrid(req: HybridRetrieveRequest):
 
 # ---------- Rebuild BM25 ----------
 @app.post("/rebuild_bm25")
-def rebuild_bm25(batch: int = 1000, cap: Optional[int] = 8000):
+def rebuild_bm25(batch: int = 1000, cap: Optional[int] = None):
     t0 = time.time()
     try:
         docs = build_bm25_from_chroma(batch=batch, cap=cap)
         return {"ok": BM25 is not None, "docs_indexed": docs,
-                "seconds": round(time.time() - t0, 2), "cap": cap}
+                "seconds": round(time.time() - t0, 2),
+                "cap": (BM25_CAP or None) if cap is None else (cap or None)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fallo BM25: {e}")
 
@@ -673,6 +697,14 @@ if image_metrics_router is not None:
 # backend.api.chat.
 list_models = chat_routes.list_models
 openai_chat_completions = chat_routes.openai_chat_completions
+
+# ================== BM25 al arrancar ==================
+# En segundo plano para no retrasar el arranque; mientras tanto la
+# recuperación híbrida degrada a solo densa, como antes.
+if ENABLE_BM25_AUTOBUILD:
+    threading.Thread(
+        target=_rebuild_bm25_safely, args=("arranque",), daemon=True
+    ).start()
 
 # ================== Watcher ==================
 if ENABLE_WATCHER:

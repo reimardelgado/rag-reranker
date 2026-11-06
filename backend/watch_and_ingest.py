@@ -22,7 +22,7 @@ INGEST   = str(BACKEND / "ingest_ocr_batch.py")
 
 # Backend FastAPI para trigger de BM25
 API_BASE = "http://127.0.0.1:8088"
-REBUILD  = f"{API_BASE}/rebuild_bm25?batch=1000&cap=5000"
+REBUILD  = f"{API_BASE}/rebuild_bm25?batch=1000"  # el tope lo fija BM25_CAP en el backend
 
 EXTS = {".pdf", ".PDF"}
 

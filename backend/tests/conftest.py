@@ -99,6 +99,7 @@ def _isolate_from_dotenv(monkeypatch):
 def app_module(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "offline-test-key")
     monkeypatch.setenv("ENABLE_WATCHER", "false")
+    monkeypatch.setenv("ENABLE_BM25_AUTOBUILD", "false")
     _install_import_fakes(monkeypatch)
 
     module_name = "rag_backend_contract_app"
