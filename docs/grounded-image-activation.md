@@ -67,6 +67,18 @@ Si cualquier paso falla, el backend devuelve un error acotado (`NO_IMAGE_EVIDENC
    imagen y 1000 de texto, con cero llamadas pagas o al proveedor.
 5. Si `decisions.refused` es alto, el corpus no tiene suficientes fuentes para
    esas peticiones. Revísalo antes de seguir.
+6. Comprueba que `GET /bm25_status` devuelve `"ready": true`. El índice léxico se
+   construye solo al arrancar y tras cada `/ingest`; sin él, la recuperación es solo
+   densa y muchas peticiones legítimas se rechazan.
+
+**Puerta de evidencia.** Un fragmento solo cuenta como evidencia si menciona al menos
+la mitad de los términos del tema (`GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE=0.5`), y cada
+término debe aparecer en alguna evidencia. Así, "astronauta en Marte" o "Torre Eiffel"
+se rechazan aunque la recuperación devuelva fragmentos del corpus. Las palabras de
+estilo (*realista*, *acuarela*…) no cuentan como tema. Límite conocido: peticiones
+con muchos términos (p. ej. "muralla del oppidum de Puente Tablas") pueden
+rechazarse si ningún fragmento recuperado nombra todos; es un falso negativo
+deliberado.
 
 ## Fase 3 — Canary (requiere tu aprobación explícita: consume el motor de imagen)
 
@@ -120,6 +132,8 @@ Si cualquier paso falla, el backend devuelve un error acotado (`NO_IMAGE_EVIDENC
 | La conexión guardada en la BD de Open WebUI no usa el token | `AUTH_REQUIRED` | Corregir la API key en *Admin → Connections* |
 | Toggle de imagen apagado | `UNSUPPORTED_TOOL` | Activar *Image Generation* en el chat |
 | Corpus con una sola fuente para el tema | `NO_IMAGE_EVIDENCE` | Ingestar más documentos o reformular |
+| BM25 no construido (`/bm25_status` → `ready: false`) | `NO_IMAGE_EVIDENCE` en temas documentados | `curl -X POST http://localhost:8088/rebuild_bm25` y revisar el log `[BM25]` |
+| Open WebUI genera la imagen por su cuenta (toggle activo en modo *Default*) | Imagen sin pie ni procedencia | Function calling **Native**; desactivar *Admin → Images* fuera del canary |
 | Gemini rechaza el esquema de `generate_image` de Open WebUI | `PROVIDER_INCOMPATIBLE` o 4xx | Revisar el esquema; ajustar el adaptador |
 | Mensaje `role=tool` de Open WebUI con forma distinta | `INVALID_TOOL_CALL` en la ronda 2 | Capturar la forma con redacción y ajustar |
 | Más de una réplica | Duplicados o fallos de correlación | Mantener exactamente 1 (NO-GO Redis) |
