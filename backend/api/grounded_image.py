@@ -436,7 +436,10 @@ class GroundedImageOrchestrator:
         retrieval_query = retrieval_query_for_image(query)
         blocks = self._runtime.retrieve_blocks(retrieval_query, self._runtime.top_k)
         return evidence_packet_from_blocks(
-            query, blocks, minimum_references=self._config.minimum_references
+            query,
+            blocks,
+            minimum_references=self._config.minimum_references,
+            subject_coverage=self._config.min_subject_coverage,
         )
 
     @staticmethod

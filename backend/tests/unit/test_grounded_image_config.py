@@ -82,6 +82,11 @@ def test_disabled_gate_denies_before_reading_headers() -> None:
         ("GROUNDED_IMAGE_AUTHORIZED_USERS", "user-a, user-b"),
         ("RAG_TRUSTED_SERVICE_TOKEN", "short"),
         ("RAG_CORRELATION_HMAC_KEY", "not base64!"),
+        ("GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE", "0"),
+        ("GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE", "0.0"),
+        ("GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE", "1.5"),
+        ("GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE", ".6"),
+        ("GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE", "sesenta"),
     ],
 )
 def test_explicit_malformed_or_unsafe_values_are_rejected_even_while_disabled(
@@ -189,3 +194,10 @@ def test_documented_environment_and_compose_defaults_remain_off(project_root) ->
     assert "RAG_CORRELATION_HMAC_KEY=\n" in env_text
     assert "GROUNDED_IMAGE_ENABLED=${GROUNDED_IMAGE_ENABLED:-false}" in compose_text
     assert "GROUNDED_IMAGE_REPLICA_COUNT=1" in compose_text
+
+
+@pytest.mark.parametrize(("value", "expected"), [("0.6", 0.6), ("1", 1.0), ("0.25", 0.25)])
+def test_subject_coverage_accepts_strict_fractions(value: str, expected: float) -> None:
+    config = GroundedImageConfig.from_environ({"GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE": value})
+    assert config.min_subject_coverage == expected
+    assert GroundedImageConfig.from_environ({}).min_subject_coverage == 0.5

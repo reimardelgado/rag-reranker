@@ -11,6 +11,7 @@ import base64
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import os
+import re
 import secrets
 
 from dotenv import load_dotenv
@@ -60,6 +61,25 @@ def _bounded_int(
         raise ConfigurationError(f"{name} must be a decimal integer.")
     parsed = int(value)
     if not minimum <= parsed <= maximum:
+        raise ConfigurationError(f"{name} is outside its permitted bound.")
+    return parsed
+
+
+_FRACTION = re.compile(r"^(0\.[0-9]{1,4}|1(\.0{1,4})?)$")
+
+
+def _bounded_fraction(
+    environ: Mapping[str, str], name: str, default: float
+) -> float:
+    """Parse a strict decimal in (0, 1], e.g. ``0.6`` or ``1``."""
+
+    value = environ.get(name)
+    if value is None:
+        return default
+    if not isinstance(value, str) or not _FRACTION.match(value):
+        raise ConfigurationError(f"{name} must be a decimal in (0, 1].")
+    parsed = float(value)
+    if parsed <= 0:
         raise ConfigurationError(f"{name} is outside its permitted bound.")
     return parsed
 
@@ -149,6 +169,7 @@ class GroundedImageConfig:
     service_token: str | None = field(default=None, repr=False)
     correlation_hmac_key: bytes | None = field(default=None, repr=False)
     minimum_references: int = 2
+    min_subject_coverage: float = 0.5
     correlation_ttl_seconds: int = 600
     correlation_max_entries: int = 1024
     correlation_max_packet_bytes: int = 256 * 1024
@@ -190,6 +211,9 @@ class GroundedImageConfig:
                 2,
                 minimum=2,
                 maximum=128,
+            ),
+            min_subject_coverage=_bounded_fraction(
+                environ, "GROUNDED_IMAGE_MIN_SUBJECT_COVERAGE", 0.5
             ),
             correlation_ttl_seconds=_bounded_int(
                 environ,
