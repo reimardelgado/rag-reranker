@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .render import PROMPT_FORMAT_DIFFUSION, InvalidRenderPrompt, render_engine_prompt
 from .validation import ValidatedGrounding, hash_canonical_prompt
 
 
@@ -37,6 +38,7 @@ class DocumentedElement(BaseModel):
 
     text: str = Field(min_length=1, max_length=2048)
     reference_ids: tuple[str, ...] = Field(min_length=1, max_length=128)
+    text_en: str | None = Field(default=None, min_length=1, max_length=2048)
 
 
 class ImageProvenance(BaseModel):
@@ -55,6 +57,9 @@ class ImageProvenance(BaseModel):
     chat_model_id: str = Field(min_length=1, max_length=256)
     image_model_id: str = Field(min_length=1, max_length=256)
     timestamp: str = Field(min_length=1, max_length=64)
+    # Exact prompt the image engine received when it differs from the
+    # canonical instruction (diffusion engines); re-derived, never trusted.
+    engine_prompt: str | None = Field(default=None, min_length=1, max_length=4096)
 
     @field_validator(
         "prompt_version",
@@ -107,6 +112,14 @@ def build_image_provenance(
         raise InvalidProvenanceError("Validated prompt hash does not match its prompt.")
     if grounding.image_spec.canonical_prompt != grounding.canonical_json:
         raise InvalidProvenanceError("Image prompt does not match validated grounding.")
+    engine_prompt = grounding.image_spec.render_prompt
+    if engine_prompt is not None:
+        try:
+            expected = render_engine_prompt(grounding.canonical_json, PROMPT_FORMAT_DIFFUSION)
+        except InvalidRenderPrompt:
+            raise InvalidProvenanceError("Engine prompt cannot be re-derived.") from None
+        if engine_prompt != expected:
+            raise InvalidProvenanceError("Engine prompt does not match validated grounding.")
     try:
         canonical = json.loads(grounding.canonical_json)
     except (TypeError, json.JSONDecodeError):
@@ -147,6 +160,7 @@ def build_image_provenance(
             chat_model_id=chat_model_id,
             image_model_id=image_model_id,
             timestamp=_public_timestamp(generated_at),
+            engine_prompt=engine_prompt,
         )
     except InvalidProvenanceError:
         raise

@@ -207,8 +207,9 @@ class ImageToolEnforcer:
         if unsupported or undeclared:
             raise InvalidImageToolCall("Image-tool arguments contain unsupported fields.")
 
+        spec = self._grounding.image_spec
         output: dict[str, object] = {
-            "prompt": self._grounding.image_spec.canonical_prompt
+            "prompt": spec.render_prompt if spec.render_prompt is not None else spec.canonical_prompt
         }
         for name in _IMAGE_OPTION_NAMES:
             provider_value = parsed.get(name)

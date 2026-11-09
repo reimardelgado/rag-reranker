@@ -57,7 +57,10 @@ _POLICY = (
     "forbidden_additions: elements that would contradict the evidence or be "
     "anachronistic.\n"
     "5. Never invent reference IDs. Write the content in the language of the "
-    "user request."
+    "user request.\n"
+    "6. For every documented fact also give text_en: the same visual fact in "
+    "short plain English (at most 20 words), adding nothing that the fact "
+    "does not say. It is used as an image-generation prompt."
 )
 
 _INSTRUCTION_SCHEMA: dict[str, Any] = {
@@ -69,9 +72,10 @@ _INSTRUCTION_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
+                    "text_en": {"type": "string"},
                     "reference_ids": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["text", "reference_ids"],
+                "required": ["text", "text_en", "reference_ids"],
             },
         },
         "inferred_elements": {"type": "array", "items": {"type": "string"}},
@@ -98,6 +102,7 @@ class _ModelFact(BaseModel):
 
     text: str = Field(min_length=1)
     reference_ids: list[str] = Field(min_length=1)
+    text_en: str | None = None
 
 
 class _ModelInstruction(BaseModel):
@@ -123,6 +128,7 @@ class GroundedInstructionBuilder:
         limits: GroundingValidationLimits | None = None,
         max_events: int = 16,
         temperature: float = 0.2,
+        prompt_format: str = "canonical_json",
     ) -> None:
         if not isinstance(model, str) or not model.strip():
             raise ValueError("A builder model is required.")
@@ -134,6 +140,7 @@ class GroundedInstructionBuilder:
         self._limits = limits or GroundingValidationLimits()
         self._max_events = max_events
         self._temperature = temperature
+        self._prompt_format = prompt_format
 
     def build_request(self, packet: EvidencePacket, *, nonce: str | None = None) -> ChatCompletionRequest:
         block = serialize_untrusted_evidence(packet, nonce=nonce, limits=self._limits)
@@ -217,7 +224,11 @@ class GroundedInstructionBuilder:
                 version=self._prompt_version,
                 query=packet.query,
                 documented_facts=tuple(
-                    DocumentedFact(text=fact.text, reference_ids=tuple(fact.reference_ids))
+                    DocumentedFact(
+                        text=fact.text,
+                        reference_ids=tuple(fact.reference_ids),
+                        text_en=fact.text_en or None,
+                    )
                     for fact in parsed.documented_facts
                 ),
                 inferred_elements=tuple(parsed.inferred_elements),
@@ -237,4 +248,5 @@ class GroundedInstructionBuilder:
             style=style,
             nonce=nonce,
             limits=self._limits,
+            prompt_format=self._prompt_format,
         )
