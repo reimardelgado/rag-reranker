@@ -27,6 +27,30 @@ la generación a ese esquema. Esto funciona incluso con modelos de 3B. La ronda 
 pie de imagen va sin herramientas. Todas las garantías del flujo (validación de
 evidencia, prompt canónico, procedencia, correlación) son las mismas que con Gemini.
 
+## Prompt que recibe el motor de imagen
+
+`GROUNDED_IMAGE_PROMPT_FORMAT` (vacío = según el modo):
+
+| Formato | Por defecto en | Qué recibe el motor |
+|---|---|---|
+| `diffusion` | modo local | Frase corta en inglés: prefijo, estilo/vista y los hechos documentados (`text_en`), con un máximo de ~55 palabras |
+| `canonical_json` | modo gemini | La instrucción canónica completa en JSON |
+
+Motivo: SD 1.5/SDXL codifican el prompt con CLIP, que lee unos 77 tokens y entiende
+sobre todo inglés. Con el JSON, SD 1.5 dibujó almenas medievales, un anacronismo
+que la propia instrucción prohibía.
+
+Garantías del formato `diffusion`:
+
+- El agente añade `text_en` a cada hecho documentado. Ese campo forma parte del JSON
+  canónico, así que queda cubierto por el `prompt_hash`.
+- El prompt del motor es una **función determinista** del JSON canónico. Solo usa
+  hechos documentados: nunca elementos inferidos, incertidumbres ni prohibiciones.
+- La procedencia incluye `engine_prompt`, y al generarla se vuelve a derivar para
+  comprobar que coincide con lo validado.
+- Las prohibiciones generales (texto, marcas de agua, edificios modernos) van en el
+  prompt negativo fijo del workflow de ComfyUI.
+
 ## Perfiles de hardware
 
 Los modelos son orientativos; confirmar los tags con `ollama list` y en la biblioteca de Ollama.
