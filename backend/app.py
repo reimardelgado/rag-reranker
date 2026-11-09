@@ -22,6 +22,7 @@ import threading
 
 try:
     from backend import retrieval as retrieval_core
+    from backend.llm_mode import LLMMode
     from backend.api.composition import build_grounded_image_composition
     from backend.api.chat import (
         ChatDependencies,
@@ -34,6 +35,7 @@ try:
     )
 except ImportError:  # Docker runs this module as top-level ``app``.
     import retrieval as retrieval_core
+    from llm_mode import LLMMode
     from api.composition import build_grounded_image_composition
     from api.chat import (
         ChatDependencies,
@@ -79,6 +81,10 @@ GEM_KEY              = os.getenv("GEMINI_API_KEY") or os.getenv("GEM_KEY")
 OLLAMA_BASE_URL      = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 DEFAULT_TOP_K        = int(os.getenv("DEFAULT_TOP_K", "6"))
 DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-3.8-flash")
+# DEFAULT_PROVIDER=ollama (todo local, por defecto) | gemini (de pago).
+LLM_MODE             = LLMMode.from_environ(os.environ)
+OLLAMA_DEFAULT_MODEL = LLM_MODE.ollama_model
+DEFAULT_CHAT_MODEL   = LLM_MODE.default_chat_model
 ENABLE_RERANKER      = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
 RERANKER_MODEL       = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
 RERANKER_TOP_K       = int(os.getenv("RERANKER_TOP_K", "6"))
@@ -89,8 +95,8 @@ ENABLE_WATCHER       = os.getenv("ENABLE_WATCHER", "false").lower() == "true"
 ENABLE_BM25_AUTOBUILD = os.getenv("ENABLE_BM25_AUTOBUILD", "true").lower() == "true"
 BM25_CAP             = int(os.getenv("BM25_CAP", "50000"))
 
-if not GEM_KEY:
-    raise RuntimeError("Falta GEMINI_API_KEY en el entorno")
+if LLM_MODE.requires_gemini_key and not GEM_KEY:
+    raise RuntimeError("Falta GEMINI_API_KEY en el entorno (DEFAULT_PROVIDER=gemini)")
 if not GEM_BASE.endswith("/"):
     raise RuntimeError("GEM_BASE debe terminar con '/'. Ej: https://.../v1beta/openai/")
 
@@ -169,7 +175,7 @@ class RetrieveRequest(BaseModel):
 class AnswerRequest(BaseModel):
     query: str
     top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=50)
-    model: str = Field(default=DEFAULT_GEMINI_MODEL)
+    model: str = Field(default=DEFAULT_CHAT_MODEL)
     temperature: float = Field(default=0.6, ge=0.0, le=1.0)
 
 class LexicalRequest(BaseModel):
@@ -347,9 +353,12 @@ async def _call_ollama_chat(model: str, messages: list, temperature: float,
         return r.json()["message"]["content"]
 
 def _is_ollama_model(model_id: str) -> bool:
-    return not any(model_id.startswith(p) for p in ("gemini-", "models/gemini"))
+    # En modo local nunca se llama a Gemini, aunque el cliente pida un gemini-*.
+    return LLM_MODE.routes_to_ollama(model_id)
 
 def _get_gemini_models() -> list:
+    if LLM_MODE.is_local:
+        return []
     return [
         {"id": "gemini-3.8-flash", "object": "model", "owned_by": "google", "created": 0},
         {"id": "gemini-3.7-flash", "object": "model", "owned_by": "google", "created": 0},
@@ -392,7 +401,10 @@ async def call_gemini_chat_completions(model: str, prompt: str,
 
 async def call_llm_with_fallback(model: str, prompt: str,
                                   temperature: float = 0.6) -> str:
-    """Intenta Gemini; si falla por cuota/error, usa Ollama automáticamente."""
+    """Intenta Gemini; si falla por cuota/error, usa Ollama automáticamente.
+
+    En modo local (DEFAULT_PROVIDER=ollama) va directo a Ollama.
+    """
     if not _is_ollama_model(model):
         try:
             return await call_gemini_chat_completions(model, prompt, temperature)
@@ -404,7 +416,8 @@ async def call_llm_with_fallback(model: str, prompt: str,
     if not ollama_models:
         raise RuntimeError("Gemini falló y Ollama no tiene modelos disponibles.")
 
-    preferred = ["llama3.1:8b", "llama3:8b", "phi3:mini", "gemma2:2b"]
+    preferred = [LLM_MODE.resolve_local_model(model), OLLAMA_DEFAULT_MODEL,
+                 "llama3.1:8b", "llama3:8b", "phi3:mini", "gemma2:2b"]
     fallback_model = ollama_models[0]["id"]
     for pref in preferred:
         if any(m["id"] == pref for m in ollama_models):
@@ -668,6 +681,7 @@ image_orchestrator, image_metrics_router = build_grounded_image_composition(
     retrieval_model_id=EMBED_MODEL,
     api_key=GEM_KEY,
 )
+logger.info("[LLM] modo=%s modelo_por_defecto=%s", LLM_MODE.provider, DEFAULT_CHAT_MODEL)
 if image_orchestrator is not None:
     logger.info("[grounded-image] composed (stage=%s)", image_orchestrator.metrics.stage.value)
 
@@ -678,7 +692,7 @@ chat_routes = create_chat_router(
         retrieve_blocks=lambda query, top_k: _retrieve_chat_blocks(query, top_k),
         is_ollama_model=lambda model: _is_ollama_model(model),
         call_ollama_chat=lambda model, messages, temperature: _call_ollama_chat(
-            model, messages, temperature
+            LLM_MODE.resolve_local_model(model), messages, temperature
         ),
         call_gemini_chat=lambda model, prompt, temperature: call_gemini_chat_completions(
             model, prompt, temperature
@@ -686,7 +700,7 @@ chat_routes = create_chat_router(
         logger=logger,
         image_orchestrator=image_orchestrator,
     ),
-    default_model=DEFAULT_GEMINI_MODEL,
+    default_model=DEFAULT_CHAT_MODEL,
     default_top_k=DEFAULT_TOP_K,
 )
 app.include_router(chat_routes.router)

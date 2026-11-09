@@ -18,8 +18,10 @@ from dotenv import load_dotenv
 
 try:
     from backend.correlation import CorrelationKey, CorrelationLimits, TrustedHeaderCorrelator
+    from backend.llm_mode import LLMMode, LLMModeError
 except ImportError:  # Docker and maintenance scripts import top-level ``config``.
     from correlation import CorrelationKey, CorrelationLimits, TrustedHeaderCorrelator
+    from llm_mode import LLMMode, LLMModeError
 
 
 load_dotenv()
@@ -123,6 +125,9 @@ def _bounded_text(
 
 
 CORRELATION_SCOPES = frozenset({"message", "chat"})
+ADAPTER_GEMINI = "gemini_native"
+ADAPTER_OLLAMA = "ollama"
+IMAGE_ADAPTERS = frozenset({ADAPTER_GEMINI, ADAPTER_OLLAMA})
 
 
 def _secret(environ: Mapping[str, str], name: str) -> str | None:
@@ -185,8 +190,18 @@ class GroundedImageConfig:
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> "GroundedImageConfig":
-        """Parse a detached configuration snapshot without mutating ``environ``."""
+        """Parse a detached configuration snapshot without mutating ``environ``.
 
+        ``DEFAULT_PROVIDER`` supplies the defaults for the adapter and the
+        agent model: local mode uses Ollama, gemini mode the native adapter.
+        Explicit ``GROUNDED_IMAGE_ADAPTER``/``GROUNDED_IMAGE_CHAT_MODEL`` win.
+        """
+
+        try:
+            mode = LLMMode.from_environ(environ)
+        except LLMModeError as error:
+            raise ConfigurationError(str(error)) from None
+        default_adapter = ADAPTER_OLLAMA if mode.is_local else ADAPTER_GEMINI
         config = cls(
             enabled=_strict_bool(environ, "GROUNDED_IMAGE_ENABLED", False),
             shadow=_strict_bool(environ, "GROUNDED_IMAGE_SHADOW", False),
@@ -196,7 +211,7 @@ class GroundedImageConfig:
             provenance_enabled=_strict_bool(
                 environ, "GROUNDED_IMAGE_PROVENANCE_ENABLED", False
             ),
-            adapter=environ.get("GROUNDED_IMAGE_ADAPTER", "gemini_native"),
+            adapter=environ.get("GROUNDED_IMAGE_ADAPTER") or default_adapter,
             authorized_users=_allowlist(
                 environ, "GROUNDED_IMAGE_AUTHORIZED_USERS", max_item_bytes=1024
             ),
@@ -258,7 +273,7 @@ class GroundedImageConfig:
                 maximum=100_000,
             ),
             chat_model=_bounded_text(
-                environ, "GROUNDED_IMAGE_CHAT_MODEL", "gemini-3.8-flash"
+                environ, "GROUNDED_IMAGE_CHAT_MODEL", mode.default_chat_model
             ),
             image_model_id=_bounded_text(
                 environ, "GROUNDED_IMAGE_IMAGE_MODEL_ID", "open-webui-image-engine"
@@ -270,7 +285,7 @@ class GroundedImageConfig:
         return config
 
     def _validate_activation(self) -> None:
-        if not isinstance(self.adapter, str) or self.adapter != "gemini_native":
+        if not isinstance(self.adapter, str) or self.adapter not in IMAGE_ADAPTERS:
             raise ConfigurationError("GROUNDED_IMAGE_ADAPTER is unsupported.")
         if self.correlation_scope not in CORRELATION_SCOPES:
             raise ConfigurationError("GROUNDED_IMAGE_CORRELATION_SCOPE is unsupported.")

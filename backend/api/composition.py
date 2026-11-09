@@ -15,17 +15,56 @@ from fastapi import APIRouter
 
 try:
     from backend.api.grounded_image import GroundedImageOrchestrator, GroundedImageRuntime
-    from backend.config import GroundedImageConfig
+    from backend.config import ADAPTER_OLLAMA, ConfigurationError, GroundedImageConfig
     from backend.metrics import GroundedImageMetrics, RolloutStage, evaluate_shadow_gate
     from backend.providers.gemini_native import GeminiNativeAdapter
+    from backend.providers.ollama_native import OllamaNativeAdapter
 except ImportError:  # pragma: no cover - top-level Docker import compatibility
     from api.grounded_image import GroundedImageOrchestrator, GroundedImageRuntime
-    from config import GroundedImageConfig
+    from config import ADAPTER_OLLAMA, ConfigurationError, GroundedImageConfig
     from metrics import GroundedImageMetrics, RolloutStage, evaluate_shadow_gate
     from providers.gemini_native import GeminiNativeAdapter
+    from providers.ollama_native import OllamaNativeAdapter
 
 
 DEFAULT_NATIVE_BASE = "https://generativelanguage.googleapis.com/v1beta"
+DEFAULT_OLLAMA_BASE = "http://ollama:11434"
+# Local generation on a 4 GB GPU (or CPU) can take minutes per round.
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 300
+
+
+def _ollama_timeout(environ: Mapping[str, str]) -> float:
+    value = environ.get("OLLAMA_TIMEOUT_SECONDS")
+    if value is None or value == "":
+        return float(DEFAULT_OLLAMA_TIMEOUT_SECONDS)
+    if not value.isascii() or not value.isdecimal() or not 10 <= int(value) <= 3600:
+        raise ConfigurationError("OLLAMA_TIMEOUT_SECONDS must be an integer in [10, 3600].")
+    return float(value)
+
+
+def _default_adapter(
+    config: GroundedImageConfig,
+    environ: Mapping[str, str],
+    api_key: str | None,
+    http_client_factory: Callable[[], object] | None,
+) -> object:
+    import httpx
+
+    client = http_client_factory() if http_client_factory else httpx.AsyncClient()
+    if config.adapter == ADAPTER_OLLAMA:
+        return OllamaNativeAdapter(
+            client=client,
+            base_url=environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE,
+            timeout=httpx.Timeout(_ollama_timeout(environ), connect=5.0),
+            keep_alive=environ.get("OLLAMA_KEEP_ALIVE") or None,
+        )
+    if not api_key:
+        raise RuntimeError("Grounded image mode with gemini_native requires GEMINI_API_KEY.")
+    return GeminiNativeAdapter(
+        api_key=api_key,
+        client=client,
+        base_url=environ.get("GROUNDED_IMAGE_GEMINI_BASE", DEFAULT_NATIVE_BASE),
+    )
 
 
 def _metrics_router(orchestrator: GroundedImageOrchestrator) -> APIRouter:
@@ -66,19 +105,10 @@ def build_grounded_image_composition(
 
     adapter = None
     if config.enabled:
-        if not api_key:
-            raise RuntimeError("Grounded image mode requires GEMINI_API_KEY.")
         if adapter_factory is not None:
             adapter = adapter_factory(config)
         else:
-            import httpx
-
-            client = http_client_factory() if http_client_factory else httpx.AsyncClient()
-            adapter = GeminiNativeAdapter(
-                api_key=api_key,
-                client=client,
-                base_url=environ.get("GROUNDED_IMAGE_GEMINI_BASE", DEFAULT_NATIVE_BASE),
-            )
+            adapter = _default_adapter(config, environ, api_key, http_client_factory)
 
     metrics = GroundedImageMetrics(
         RolloutStage.CANARY if config.enabled else RolloutStage.SHADOW

@@ -73,6 +73,8 @@ _ISOLATED_ENV_PREFIXES = (
     "RAG_TRUSTED_",
     "RAG_CORRELATION_",
     "OPENWEBUI_",
+    "OLLAMA_",
+    "DEFAULT_PROVIDER",
 )
 
 
@@ -95,8 +97,32 @@ def _isolate_from_dotenv(monkeypatch):
             monkeypatch.delenv(name, raising=False)
 
 
+def _load_app(monkeypatch, module_name="rag_backend_contract_app"):
+    _install_import_fakes(monkeypatch)
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    spec = importlib.util.spec_from_file_location(module_name, APP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, module_name, module)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def local_app_module(monkeypatch):
+    """The app in fully local mode (DEFAULT_PROVIDER=ollama), without a Gemini key."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEM_KEY", raising=False)
+    monkeypatch.setenv("DEFAULT_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_DEFAULT_MODEL", "qwen2.5:3b")
+    monkeypatch.setenv("ENABLE_WATCHER", "false")
+    monkeypatch.setenv("ENABLE_BM25_AUTOBUILD", "false")
+    return _load_app(monkeypatch, "rag_backend_local_app")
+
+
 @pytest.fixture
 def app_module(monkeypatch):
+    # The established text baseline is the Gemini mode contract.
+    monkeypatch.setenv("DEFAULT_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "offline-test-key")
     monkeypatch.setenv("ENABLE_WATCHER", "false")
     monkeypatch.setenv("ENABLE_BM25_AUTOBUILD", "false")
