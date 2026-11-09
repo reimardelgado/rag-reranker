@@ -37,6 +37,11 @@ Los modelos son orientativos; confirmar los tags con `ollama list` y en la bibli
 | `OLLAMA_DEFAULT_MODEL` | `qwen2.5:3b` (~2 GB) | `qwen2.5:14b` (~9 GB) o `qwen2.5:7b` |
 | `OLLAMA_KEEP_ALIVE` | `1m` | `30m` |
 | `OLLAMA_TIMEOUT_SECONDS` | `600` | `300` |
+| `OLLAMA_NUM_CTX` | `8192` | `16384` |
+| Medido en vivo (PC, CPU, `qwen2.5:3b`) | Chat ~25 s; imagen: ronda 1 ~5 min, ronda 2 ~1 min | — |
+
+**No bajar `OLLAMA_NUM_CTX` de 8192.** Con el valor por defecto de Ollama (4096) el
+prompt con evidencia no cabe, el modelo entra en bucle y la ronda acaba por timeout.
 | ComfyUI | SD 1.5, 512×512, `--lowvram` | SDXL 1024×1024 (~7 GB) o FLUX.1 schnell fp8 |
 | Tiempo aproximado | Respuesta en decenas de segundos; imagen 30–90 s | Respuesta en segundos; imagen 5–20 s |
 
