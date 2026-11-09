@@ -464,6 +464,21 @@ curl -X POST http://localhost:8088/retrieve_hybrid \
 
 ## 11. Modelos locales con Ollama (despliegue local/VPS)
 
+> **Modo por defecto: todo local y sin costo.** Con `DEFAULT_PROVIDER=ollama`
+> (valor por defecto) el chat de texto y el agente de imagen usan Ollama, no hace
+> falta `GEMINI_API_KEY` y nunca se llama a Gemini. Con `DEFAULT_PROVIDER=gemini`
+> se usa Gemini de pago, con Ollama como respaldo. Las imágenes se generan en local
+> con ComfyUI o AUTOMATIC1111 a través de Open WebUI.
+> Guía completa (Windows, GPU, perfiles de 4 GB y 20 GB, cambio de modo):
+> **[docs/local-providers.md](docs/local-providers.md)**. Personalizar la interfaz:
+> **[docs/openwebui-branding.md](docs/openwebui-branding.md)**.
+
+Con GPU NVIDIA (Docker Desktop + WSL2 en Windows):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+```
+
 Descargar un modelo:
 
 ```bash

@@ -12,7 +12,7 @@ consumir el motor de imagen.
    *"Genera una imagen del oppidum ibero"*.
 2. Open WebUI envía el chat y la herramienta `generate_image` al backend.
 3. El backend comprueba acceso, recupera evidencia (mínimo 2 fuentes/página
-   distintas), pide a Gemini una instrucción estructurada, la valida y le hace un
+   distintas), pide al agente (Ollama o Gemini, según `DEFAULT_PROVIDER`) una instrucción estructurada, la valida y le hace un
    hash, y devuelve **una** llamada `generate_image` cuyo `prompt` es la
    instrucción canónica validada.
 4. **Open WebUI ejecuta su motor de imagen** con sus propias credenciales y
@@ -81,6 +81,13 @@ rechazarse si ningún fragmento recuperado nombra todos; es un falso negativo
 deliberado.
 
 ## Fase 3 — Canary (requiere tu aprobación explícita: consume el motor de imagen)
+
+> **Modo local** (`DEFAULT_PROVIDER=ollama`): el agente es Ollama y el motor,
+> ComfyUI o A1111 en el host, así que el canary **no tiene costo**. La puesta en
+> marcha está en [local-providers.md](local-providers.md). En la allowlist
+> `GROUNDED_IMAGE_AUTHORIZED_MODELS` va el tag de Ollama que sirve el backend
+> (p. ej. `qwen2.5:14b`). Los contadores `paid_generation` siguen llamándose así,
+> aunque en local cuentan generaciones sin costo.
 
 1. En Open WebUI:
    - Configura el motor y el modelo de imagen.
