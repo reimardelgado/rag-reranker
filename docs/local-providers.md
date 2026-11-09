@@ -83,15 +83,26 @@ y poner `OLLAMA_BASE_URL=http://host.docker.internal:11434` en `.env`.
 1. Descargar la versión portable de ComfyUI para NVIDIA y descomprimirla.
 2. Copiar un checkpoint en `ComfyUI\models\checkpoints\` (SD 1.5 en el PC, SDXL o FLUX
    en el servidor).
-3. Arrancar escuchando en la red para que los contenedores lleguen por
-   `host.docker.internal`:
+3. Arrancar (Docker Desktop llega al host por `host.docker.internal` aunque
+   ComfyUI escuche solo en `127.0.0.1`):
    ```powershell
-   .\python_embeded\python.exe -s ComfyUI\main.py --windows-standalone-build --listen 0.0.0.0 --port 8188
+   .\python_embeded\python.exe -s ComfyUI\main.py --windows-standalone-build --listen 127.0.0.1 --port 8188
    # PC de 4 GB: añadir --lowvram
    ```
-   Limitar el puerto 8188 en el firewall de Windows a la red local o a Docker.
-4. En ComfyUI, montar el flujo de texto a imagen y exportarlo con
-   **Workflow → Export (API)**. Ese JSON es el que se carga en Open WebUI.
+   Si en otra instalación Docker no llegara, usar `--listen 0.0.0.0` y limitar el
+   puerto 8188 en el firewall de Windows.
+4. Workflow para Open WebUI: [comfyui/sd15_txt2img_api.json](comfyui/sd15_txt2img_api.json)
+   (SD 1.5, 512×512, 20 pasos, prompt negativo contra anacronismos). Para otro modelo,
+   montarlo en ComfyUI y exportarlo con **Workflow → Export (API)**.
+   Mapeo de nodos en Open WebUI: prompt → nodo `6` (`text`), modelo → `4`
+   (`ckpt_name`), ancho/alto → `5`, pasos y semilla → `3`.
+
+**Verificado en el PC (GTX 1650, 4 GB):** ComfyUI v0.44.0 portable `nvidia_cu126`
+(el paquete `nvidia` por defecto necesita un driver más nuevo que el 555). Escuchando
+solo en `127.0.0.1`, Open WebUI llega igualmente por `host.docker.internal`, así que no
+hace falta `--listen 0.0.0.0`. Una imagen SD 1.5 512×512 tarda ~26 s con el modelo
+cargado (~50 s la primera). La primera ejecución tras arrancar puede fallar con
+`HostBuffer.read_file_slice failed` en `--lowvram`; reintentar funciona.
 
 **AUTOMATIC1111** también vale: arrancar con `--api --listen` (y `--lowvram` o
 `--medvram` en el PC) y elegir el motor `automatic1111` (puerto 7860).
