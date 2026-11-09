@@ -42,6 +42,15 @@ def _ollama_timeout(environ: Mapping[str, str]) -> float:
     return float(value)
 
 
+def _ollama_int(environ: Mapping[str, str], name: str, default: int, low: int, high: int) -> int:
+    value = environ.get(name)
+    if value is None or value == "":
+        return default
+    if not value.isascii() or not value.isdecimal() or not low <= int(value) <= high:
+        raise ConfigurationError(f"{name} must be an integer in [{low}, {high}].")
+    return int(value)
+
+
 def _default_adapter(
     config: GroundedImageConfig,
     environ: Mapping[str, str],
@@ -57,6 +66,8 @@ def _default_adapter(
             base_url=environ.get("OLLAMA_BASE_URL") or DEFAULT_OLLAMA_BASE,
             timeout=httpx.Timeout(_ollama_timeout(environ), connect=5.0),
             keep_alive=environ.get("OLLAMA_KEEP_ALIVE") or None,
+            num_ctx=_ollama_int(environ, "OLLAMA_NUM_CTX", 8192, 2048, 131072),
+            max_output_tokens=_ollama_int(environ, "OLLAMA_MAX_OUTPUT_TOKENS", 1024, 64, 16384),
         )
     if not api_key:
         raise RuntimeError("Grounded image mode with gemini_native requires GEMINI_API_KEY.")

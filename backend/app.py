@@ -85,6 +85,8 @@ DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-3.8-flash")
 LLM_MODE             = LLMMode.from_environ(os.environ)
 OLLAMA_DEFAULT_MODEL = LLM_MODE.ollama_model
 DEFAULT_CHAT_MODEL   = LLM_MODE.default_chat_model
+# Contexto de Ollama: el valor por defecto (4096) trunca en silencio el contexto RAG.
+OLLAMA_NUM_CTX       = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 ENABLE_RERANKER      = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
 RERANKER_MODEL       = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
 RERANKER_TOP_K       = int(os.getenv("RERANKER_TOP_K", "6"))
@@ -345,7 +347,7 @@ async def _call_ollama_chat(model: str, messages: list, temperature: float,
         "model": model,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature}
+        "options": {"temperature": temperature, "num_ctx": OLLAMA_NUM_CTX}
     }
     async with httpx.AsyncClient(timeout=180) as c:
         r = await c.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)

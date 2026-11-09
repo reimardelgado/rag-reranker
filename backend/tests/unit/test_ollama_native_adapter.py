@@ -90,7 +90,7 @@ async def test_plain_text_turn_uses_native_chat_with_options_and_usage():
     assert recorder.urls == ["http://ollama:11434/api/chat"]
     body = recorder.bodies[0]
     assert body["stream"] is False and body["keep_alive"] == "2m"
-    assert body["options"] == {"temperature": 0.3, "num_predict": 50, "stop": ["FIN"]}
+    assert body["options"] == {"temperature": 0.3, "num_ctx": 8192, "num_predict": 50, "stop": ["FIN"]}
     assert "tools" not in body and "format" not in body
     assert events[0] == TextEvent("respuesta")
     assert events[-1].category is FinishCategory.STOP
@@ -350,3 +350,24 @@ async def test_length_finish_and_finish_event_is_last():
     adapter = _adapter(Recorder(_reply("corto", done_reason="length")))
     events = await _events(adapter, _request())
     assert isinstance(events[-1], FinishEvent) and events[-1].category is FinishCategory.LENGTH
+
+
+@pytest.mark.asyncio
+async def test_context_window_and_output_cap_prevent_runaway_generation():
+    # Ollama's default 4096-token context shifted the evidence out and looped
+    # until the timeout in a live run; both bounds are always sent.
+    recorder = Recorder(_reply('{"prompt": "p"}'))
+    adapter = _adapter(recorder, num_ctx=16384, max_output_tokens=700)
+
+    await _events(adapter, _request(tools=[TOOL], tool_choice=FORCE))
+
+    options = recorder.bodies[0]["options"]
+    assert options["num_ctx"] == 16384 and options["num_predict"] == 700
+
+
+def test_invalid_bounds_are_rejected():
+    client = httpx.AsyncClient()
+    with pytest.raises(ValueError):
+        OllamaNativeAdapter(client=client, num_ctx=0)
+    with pytest.raises(ValueError):
+        OllamaNativeAdapter(client=client, max_output_tokens=-1)

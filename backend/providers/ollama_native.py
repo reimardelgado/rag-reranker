@@ -121,6 +121,8 @@ class OllamaNativeAdapter:
         base_url: str = "http://ollama:11434",
         timeout: httpx.Timeout | float = httpx.Timeout(300.0, connect=5.0),
         keep_alive: str | None = None,
+        num_ctx: int | None = 8192,
+        max_output_tokens: int | None = 1024,
         max_request_bytes: int = 4 * 1024 * 1024,
         max_response_bytes: int = 2 * 1024 * 1024,
         max_inline_bytes: int = 10 * 1024 * 1024,
@@ -135,9 +137,15 @@ class OllamaNativeAdapter:
             or max_inline_bytes <= 0
             or max_pending_calls <= 0
             or not pending_ttl_seconds > 0
+            or (num_ctx is not None and num_ctx <= 0)
+            or (max_output_tokens is not None and max_output_tokens <= 0)
         ):
             raise ValueError("Adapter bounds must be positive.")
         self._client = client
+        # Ollama's default context (4096) silently shifts out the evidence and
+        # can loop until the timeout; size it explicitly and cap the output.
+        self._num_ctx = num_ctx
+        self._max_output_tokens = max_output_tokens
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._keep_alive = keep_alive
@@ -272,8 +280,12 @@ class OllamaNativeAdapter:
             body["format"] = deepcopy(plan.forced.get("parameters") or {"type": "object"})
 
         options: dict[str, object] = {"temperature": request.temperature}
+        if self._num_ctx is not None:
+            options["num_ctx"] = self._num_ctx
         if "max_tokens" in data:
             options["num_predict"] = data["max_tokens"]
+        elif self._max_output_tokens is not None:
+            options["num_predict"] = self._max_output_tokens
         if "top_p" in data:
             options["top_p"] = data["top_p"]
         if "stop" in data:
