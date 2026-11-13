@@ -16,6 +16,11 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      # Tiempo que un modelo queda cargado en VRAM. Con 4 GB conviene corto (p. ej. 1m)
+      # para liberar memoria a ComfyUI; con 20 GB puede ser largo (p. ej. 30m).
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-5m}
+    # GPU: arrancar con  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
     restart: unless-stopped
 
   backend:
@@ -29,7 +34,8 @@ services:
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
       - DOCS_PATH=/app/docs
-      - OLLAMA_BASE_URL=http://ollama:11434
+      # Ollama en contenedor (por defecto) o nativo en Windows: http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - ENABLE_RERANKER=true
       - GROUNDED_IMAGE_ENABLED=${GROUNDED_IMAGE_ENABLED:-false}
       - GROUNDED_IMAGE_SHADOW=${GROUNDED_IMAGE_SHADOW:-false}
@@ -58,6 +64,17 @@ services:
       # Forwards X-OpenWebUI-User-Id / Chat-Id (and Message-Id when supported)
       # so the backend can correlate the image tool loop. Off by default.
       - ENABLE_FORWARD_USER_INFO_HEADERS=${OPENWEBUI_FORWARD_USER_INFO_HEADERS:-false}
+      # Nombre visible de la interfaz (ver docs/openwebui-branding.md).
+      - WEBUI_NAME=${WEBUI_NAME:-Open WebUI}
+      # Motor de imagen. Solo se aplican en el primer arranque: después manda lo
+      # guardado en Admin → Settings → Images (PersistentConfig de Open WebUI).
+      # comfyui | automatic1111 | gemini | openai
+      - IMAGE_GENERATION_ENGINE=${OPENWEBUI_IMAGE_ENGINE:-comfyui}
+      - COMFYUI_BASE_URL=${COMFYUI_BASE_URL:-http://host.docker.internal:8188}
+      - AUTOMATIC1111_BASE_URL=${AUTOMATIC1111_BASE_URL:-http://host.docker.internal:7860}
+    extra_hosts:
+      # ComfyUI/A1111 corren nativos en el host Windows.
+      - "host.docker.internal:host-gateway"
     depends_on:
       - backend
       - ollama

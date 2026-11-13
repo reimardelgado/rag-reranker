@@ -1,0 +1,14 @@
+# Override de GPU NVIDIA para Ollama.
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Requisitos en Windows: Docker Desktop con backend WSL2 y driver NVIDIA reciente
+# (la GPU llega al contenedor a través de WSL2; no hace falta instalar CUDA aparte).
+# Sin este archivo Ollama corre en CPU: más lento, pero funciona en cualquier PC.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
