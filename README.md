@@ -385,7 +385,27 @@ El sistema incluye un watcher que vigila `backend/docs/` y lanza la ingesta auto
 
 ```env
 ENABLE_WATCHER=true
+# Opcionales (valores por defecto):
+WATCHER_POLLING=true         # sondeo: necesario en Docker Desktop para Windows/macOS
+WATCHER_POLL_INTERVAL=5      # segundos entre revisiones de la carpeta
+WATCHER_OCR=true             # OCR (Tesseract) en las páginas sin texto
+WATCHER_SCAN_ON_START=true   # al arrancar, revisa los PDF que ya están en la carpeta
 ```
+
+- **Por qué sondeo:** los archivos copiados desde el host Windows a un bind mount no
+  generan eventos inotify dentro del contenedor, así que el observador nativo no los ve.
+  `WATCHER_POLLING=false` solo sirve en Linux nativo.
+- **Sin duplicados:** `/ingest` omite un PDF si ya hay fragmentos con el mismo nombre
+  (`source`, compatible con `ingest_ocr_batch.py`) o con la misma huella SHA-256 del
+  contenido. Para reemplazar un documento, envía `force=true`. Los IDs de los
+  fragmentos son deterministas (`<sha256[:16]>-<n>`). A los fragmentos antiguos sin
+  huella se les añade al encontrarlos por nombre (el escaneo inicial lo hace con toda
+  la carpeta), para que una copia renombrada también se reconozca.
+- El watcher espera a que el tamaño del archivo deje de cambiar antes de ingerir, así
+  que una copia larga no se procesa a medias. El resultado aparece en el log como
+  `[WATCHER] <archivo> ingerido: N páginas, M fragmentos` o `ya estaba ingerido`.
+- Para escaneos difíciles, `ingest_ocr_batch.py` sigue dando mejor OCR (400 dpi,
+  limpieza de imagen); el OCR del watcher es más ligero (120 dpi).
 
 Y reinicia el backend:
 
@@ -452,7 +472,7 @@ curl -X POST http://localhost:8088/retrieve_hybrid \
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
 | GET | `/health` | Estado del servicio |
-| POST | `/ingest` | Subir e ingestar un PDF |
+| POST | `/ingest` | Subir e ingestar un PDF (omite duplicados; `ocr`, `force`) |
 | POST | `/retrieve` | Recuperación densa (ChromaDB) |
 | POST | `/retrieve_lexical` | Recuperación léxica (BM25) |
 | POST | `/retrieve_hybrid` | Recuperación híbrida (RRF + reranker) |
