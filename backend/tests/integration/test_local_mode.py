@@ -71,8 +71,8 @@ class OllamaScript:
             content = json.dumps(
                 {
                     "documented_facts": [
-                        {"text": "Muralla de mampostería alrededor del oppidum", "reference_ids": [REF_12]},
-                        {"text": "Viviendas rectangulares con zócalo de piedra", "reference_ids": [REF_40]},
+                        {"text": "Muralla de mampostería alrededor del oppidum", "text_en": "stone masonry wall around the hillfort", "reference_ids": [REF_12]},
+                        {"text": "Viviendas rectangulares con zócalo de piedra", "text_en": "rectangular houses on stone plinths", "reference_ids": [REF_40]},
                     ],
                     "inferred_elements": ["Cielo despejado"],
                     "uncertainties": ["Altura exacta de la muralla"],
@@ -91,7 +91,7 @@ class OllamaScript:
         )
 
 
-def _build():
+def _build(prompt_format="canonical_json"):
     script = OllamaScript()
     config = GroundedImageConfig(
         enabled=True,
@@ -104,6 +104,7 @@ def _build():
         correlation_hmac_key=b"k" * 32,
         chat_model=MODEL,
         image_model_id="comfyui-sd15",
+        prompt_format=prompt_format,
     )
     adapter = OllamaNativeAdapter(client=httpx.AsyncClient(transport=httpx.MockTransport(script)))
     orchestrator = GroundedImageOrchestrator(
@@ -229,3 +230,40 @@ async def test_local_text_chat_maps_gemini_model_names_to_local_default(local_ap
     assert response.status_code == 200, response.text
     assert seen == ["qwen2.5:3b"]
     assert "respuesta local" in response.json()["choices"][0]["message"]["content"]
+
+
+@pytest.mark.asyncio
+async def test_diffusion_format_sends_short_english_prompt_with_provenance():
+    app, script, adapter = _build(prompt_format="diffusion")
+    first = {
+        "model": MODEL,
+        "stream": False,
+        "messages": [{"role": "user", "content": "Genera una imagen del oppidum ibero"}],
+        "tools": [IMAGE_TOOL],
+    }
+
+    response = await _post(app, first)
+    assert response.status_code == 200, response.text
+    [tool_call] = response.json()["choices"][0]["message"]["tool_calls"]
+    prompt = json.loads(tool_call["function"]["arguments"])["prompt"]
+    assert prompt.startswith("archaeological interpretive reconstruction")
+    assert "stone masonry wall around the hillfort" in prompt
+    assert "rectangular houses on stone plinths" in prompt
+    assert "{" not in prompt and "Castillo" not in prompt and len(prompt.split()) <= 60
+    builder_items = script.bodies[0]["format"]["properties"]["documented_facts"]["items"]
+    assert "text_en" in builder_items["required"]
+
+    second = {
+        "model": MODEL,
+        "stream": False,
+        "messages": [
+            *first["messages"],
+            {"role": "assistant", "content": "", "tool_calls": [tool_call]},
+            {"role": "tool", "tool_call_id": tool_call["id"], "content": "done"},
+        ],
+        "tools": [IMAGE_TOOL],
+    }
+    response = await _post(app, second)
+    assert response.status_code == 200, response.text
+    content = response.json()["choices"][0]["message"]["content"]
+    assert '"engine_prompt"' in content and "stone masonry wall around the hillfort" in content

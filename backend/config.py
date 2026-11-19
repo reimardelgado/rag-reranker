@@ -128,6 +128,7 @@ CORRELATION_SCOPES = frozenset({"message", "chat"})
 ADAPTER_GEMINI = "gemini_native"
 ADAPTER_OLLAMA = "ollama"
 IMAGE_ADAPTERS = frozenset({ADAPTER_GEMINI, ADAPTER_OLLAMA})
+PROMPT_FORMATS = frozenset({"canonical_json", "diffusion"})
 
 
 def _secret(environ: Mapping[str, str], name: str) -> str | None:
@@ -184,6 +185,9 @@ class GroundedImageConfig:
     chat_model: str = "gemini-3.8-flash"
     image_model_id: str = "open-webui-image-engine"
     correlation_scope: str = "message"
+    # canonical_json for language-model engines (Gemini); diffusion for
+    # CLIP-based engines (ComfyUI/A1111). Defaults follow DEFAULT_PROVIDER.
+    prompt_format: str = "canonical_json"
 
     def __post_init__(self) -> None:
         self._validate_activation()
@@ -281,12 +285,20 @@ class GroundedImageConfig:
             correlation_scope=_bounded_text(
                 environ, "GROUNDED_IMAGE_CORRELATION_SCOPE", "message", max_bytes=16
             ),
+            prompt_format=_bounded_text(
+                environ,
+                "GROUNDED_IMAGE_PROMPT_FORMAT",
+                "diffusion" if mode.is_local else "canonical_json",
+                max_bytes=32,
+            ),
         )
         return config
 
     def _validate_activation(self) -> None:
         if not isinstance(self.adapter, str) or self.adapter not in IMAGE_ADAPTERS:
             raise ConfigurationError("GROUNDED_IMAGE_ADAPTER is unsupported.")
+        if self.prompt_format not in PROMPT_FORMATS:
+            raise ConfigurationError("GROUNDED_IMAGE_PROMPT_FORMAT is unsupported.")
         if self.correlation_scope not in CORRELATION_SCOPES:
             raise ConfigurationError("GROUNDED_IMAGE_CORRELATION_SCOPE is unsupported.")
         if self.enabled and self.shadow:

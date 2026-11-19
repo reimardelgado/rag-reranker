@@ -288,7 +288,9 @@ class GroundedImageOrchestrator:
             self._state = CorrelationStateStore(correlator=correlator, limits=limits)
             self._execution = CorrelationExecutionStore(correlator=correlator, limits=limits)
             self._builder = GroundedInstructionBuilder(
-                runtime.adapter, model=self._config.chat_model
+                runtime.adapter,
+                model=self._config.chat_model,
+                prompt_format=self._config.prompt_format,
             )
 
     @property

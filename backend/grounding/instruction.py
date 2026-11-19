@@ -19,6 +19,8 @@ class DocumentedFact(BaseModel):
 
     text: str = Field(min_length=1)
     reference_ids: tuple[str, ...] = Field(min_length=1)
+    # Short English rendering of the same fact for CLIP-based engines.
+    text_en: str | None = None
 
 
 class GroundedImageInstruction(BaseModel):
@@ -43,6 +45,9 @@ class ImageSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     canonical_prompt: str = Field(min_length=1)
+    # Engine prompt derived from ``canonical_prompt`` (diffusion format); None
+    # means the engine receives ``canonical_prompt`` itself.
+    render_prompt: str | None = Field(default=None, min_length=1)
     size: str | None = None
     quality: str | None = None
     style: str | None = None

@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .evidence import EvidencePacket, EvidenceReference
 from .instruction import GroundedImageInstruction, ImageSpec
+from .render import PROMPT_FORMAT_CANONICAL, InvalidRenderPrompt, render_engine_prompt
 
 
 class InvalidGroundingError(ValueError):
@@ -170,7 +171,12 @@ def _canonical_instruction(
         reference_ids = tuple(dict.fromkeys(value.strip() for value in fact.reference_ids))
         if not reference_ids or any(reference_id not in references for reference_id in reference_ids):
             raise InvalidGroundingError("Every documented fact must map to retrieved evidence.")
-        facts.append({"reference_ids": sorted(reference_ids), "text": text})
+        entry: dict[str, Any] = {"reference_ids": sorted(reference_ids), "text": text}
+        if fact.text_en is not None and fact.text_en.strip():
+            entry["text_en"] = _bounded_text(
+                fact.text_en, "Documented fact (en)", limits.max_claim_chars
+            )
+        facts.append(entry)
         documented_text.add(text.casefold())
     facts = sorted(
         {_canonical_json(fact): fact for fact in facts}.values(),
@@ -282,6 +288,7 @@ def validate_grounded_instruction(
     style: str | None = None,
     nonce: str | None = None,
     limits: GroundingValidationLimits | None = None,
+    prompt_format: str = PROMPT_FORMAT_CANONICAL,
 ) -> ValidatedGrounding:
     """Validate, canonicalize, hash, and bound one grounded instruction."""
 
@@ -292,8 +299,13 @@ def validate_grounded_instruction(
         limits=resolved_limits,
     )
     prompt_hash = hash_canonical_prompt(canonical_json)
+    try:
+        render_prompt = render_engine_prompt(canonical_json, prompt_format)
+    except InvalidRenderPrompt:
+        raise InvalidGroundingError("Engine prompt could not be derived.") from None
     image_spec = ImageSpec(
         canonical_prompt=canonical_json,
+        render_prompt=render_prompt,
         size=size,
         quality=quality,
         style=style,
