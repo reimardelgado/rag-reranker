@@ -140,7 +140,7 @@ deliberado.
 | Toggle de imagen apagado | `UNSUPPORTED_TOOL` | Activar *Image Generation* en el chat |
 | Corpus con una sola fuente para el tema | `NO_IMAGE_EVIDENCE` | Ingestar más documentos o reformular |
 | BM25 no construido (`/bm25_status` → `ready: false`) | `NO_IMAGE_EVIDENCE` en temas documentados | `curl -X POST http://localhost:8088/rebuild_bm25` y revisar el log `[BM25]` |
-| Open WebUI genera la imagen por su cuenta (toggle activo en modo *Default*) | Imagen sin pie ni procedencia | Function calling **Native**; desactivar *Admin → Images* fuera del canary |
+| Open WebUI genera la imagen por su cuenta (toggle 🖼️ activo con Function Calling *Legacy*; en 0.11.4 *Default* equivale a *Native*) | Imagen sin pie ni procedencia | Function Calling **Native** (o *Default*); desactivar *Admin → Images* fuera del canary |
 | Gemini rechaza el esquema de `generate_image` de Open WebUI | `PROVIDER_INCOMPATIBLE` o 4xx | Revisar el esquema; ajustar el adaptador |
 | Mensaje `role=tool` de Open WebUI con forma distinta | `INVALID_TOOL_CALL` en la ronda 2 | Capturar la forma con redacción y ajustar |
 | Más de una réplica | Duplicados o fallos de correlación | Mantener exactamente 1 (NO-GO Redis) |
