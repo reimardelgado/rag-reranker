@@ -2,7 +2,7 @@ import os
 import re
 import io
 import gc
-import uuid
+import hashlib
 import string
 import logging
 import time
@@ -478,11 +478,59 @@ def health():
     return {"ok": True}
 
 # ---------- Ingesta ----------
+def _already_ingested(filename: str, doc_sha256: str):
+    """Motivo por el que el PDF ya está en la colección, o None.
+
+    Se compara por nombre (``source``, el mismo campo que escribe
+    ingest_ocr_batch.py) y por huella del contenido, para que volver a copiar
+    un PDF o subirlo con otro nombre no duplique fragmentos.
+    """
+    if collection.get(where={"source": filename}, limit=1, include=["metadatas"]).get("ids"):
+        _backfill_doc_sha256(filename, doc_sha256)
+        return "mismo nombre"
+    if collection.get(where={"doc_sha256": doc_sha256}, limit=1,
+                      include=["metadatas"]).get("ids"):
+        return "mismo contenido"
+    return None
+
+
+def _backfill_doc_sha256(filename: str, doc_sha256: str) -> int:
+    """Añade la huella a fragmentos antiguos (uuid4 o ingest_ocr_batch.py) que no la tienen.
+
+    Sin ella, una copia del mismo PDF con otro nombre no se reconocería.
+    El escaneo inicial del watcher pasa por aquí con cada PDF de la carpeta.
+    """
+    try:
+        found = collection.get(where={"source": filename}, include=["metadatas"])
+        ids, metas = [], []
+        for _id, meta in zip(found.get("ids") or [], found.get("metadatas") or []):
+            # Solo si falta: con el mismo nombre y otro contenido, la huella antigua manda.
+            if "doc_sha256" not in (meta or {}):
+                ids.append(_id)
+                metas.append({**(meta or {}), "doc_sha256": doc_sha256})
+        if ids:
+            collection.update(ids=ids, metadatas=metas)
+            logger.info("[ingest] %s: huella añadida a %d fragmentos", filename, len(ids))
+        return len(ids)
+    except Exception:
+        logger.exception("[ingest] no se pudo añadir la huella a %s", filename)
+        return 0
+
+
 @app.post("/ingest")
-async def ingest_pdf(file: UploadFile = File(...), ocr: bool = Form(False)):
+async def ingest_pdf(file: UploadFile = File(...), ocr: bool = Form(False),
+                     force: bool = Form(False)):
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Solo se aceptan PDFs")
     pdf_bytes = await file.read()
+    doc_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    if force:
+        collection.delete(where={"source": file.filename})
+    else:
+        reason = _already_ingested(file.filename, doc_sha256)
+        if reason:
+            logger.info("[ingest] %s omitido: ya ingerido (%s)", file.filename, reason)
+            return {"ok": True, "skipped": True, "reason": reason, "chunks": 0}
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
@@ -498,7 +546,8 @@ async def ingest_pdf(file: UploadFile = File(...), ocr: bool = Form(False)):
             continue
         for chunk in _chunk(text):
             phase = detect_phase(chunk)
-            meta  = {"source": file.filename, "page": page_idx + 1}
+            meta  = {"source": file.filename, "page": page_idx + 1,
+                     "doc_sha256": doc_sha256}
             if phase is not None:
                 meta["phase"] = phase
             documents.append(chunk)
@@ -513,14 +562,14 @@ async def ingest_pdf(file: UploadFile = File(...), ocr: bool = Form(False)):
         documents=documents,
         metadatas=metadatas,
         embeddings=embeddings,
-        ids=[str(uuid.uuid4()) for _ in documents]
+        ids=[f"{doc_sha256[:16]}-{i}" for i in range(len(documents))]
     )
     page_count = len(doc)
     doc.close()
     if ENABLE_BM25_AUTOBUILD:
         _rebuild_bm25_safely(f"ingesta de {file.filename}")
-    return {"ok": True, "pages": page_count, "chunks": len(documents),
-            "bm25_docs_indexed": len(LEX_CORPUS)}
+    return {"ok": True, "skipped": False, "pages": page_count,
+            "chunks": len(documents), "bm25_docs_indexed": len(LEX_CORPUS)}
 
 # ---------- Retrieve (denso) ----------
 @app.post("/retrieve", operation_id="rag_retrieve")
