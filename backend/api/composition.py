@@ -108,7 +108,7 @@ def build_grounded_image_composition(
     api_key: str | None,
     http_client_factory: Callable[[], object] | None = None,
     adapter_factory: Callable[..., object] | None = None,
-    top_k: int = 8,
+    top_k: int | None = None,
 ) -> tuple[GroundedImageOrchestrator | None, APIRouter | None]:
     config = GroundedImageConfig.from_environ(environ)
     if not (config.enabled or config.shadow):
@@ -131,7 +131,7 @@ def build_grounded_image_composition(
             retrieve_blocks=retrieve_blocks,
             retrieval_model_id=retrieval_model_id,
             metrics=metrics,
-            top_k=top_k,
+            top_k=config.evidence_top_k if top_k is None else top_k,
         )
     )
     return orchestrator, _metrics_router(orchestrator)
