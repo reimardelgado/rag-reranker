@@ -571,7 +571,12 @@ class OllamaNativeAdapter:
         raw_calls: list[tuple[str, dict[str, object]]] = []
         events: list[TextEvent | FunctionCallEvent] = []
         if plan.forced is not None:
-            raw_calls.append((str(plan.forced["name"]), self._forced_arguments(content)))
+            raw_calls.append(
+                (
+                    str(plan.forced["name"]),
+                    self._forced_arguments(content, payload.get("done_reason")),
+                )
+            )
         else:
             raw_calls.extend(self._native_calls(message.get("tool_calls")))
             if content:
@@ -607,13 +612,17 @@ class OllamaNativeAdapter:
         return ProviderResult(events=tuple(events), finish=finish)
 
     @staticmethod
-    def _forced_arguments(content: str) -> dict[str, object]:
+    def _forced_arguments(content: str, done_reason: object = None) -> dict[str, object]:
         text = content.strip()
         if text.startswith("```"):
             text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text)
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError:
+            if done_reason == "length":
+                raise MalformedProviderResponse(
+                    "Ollama structured output was truncated at OLLAMA_MAX_OUTPUT_TOKENS."
+                ) from None
             raise MalformedProviderResponse("Ollama structured output is not JSON.") from None
         if not isinstance(parsed, dict):
             raise MalformedProviderResponse("Ollama structured output is not a JSON object.")
