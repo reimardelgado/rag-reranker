@@ -104,7 +104,13 @@ deliberado.
    GROUNDED_IMAGE_AUTHORIZED_USERS=<id-del-usuario-canary>
    GROUNDED_IMAGE_AUTHORIZED_MODELS=<id-del-modelo-en-open-webui>
    GROUNDED_IMAGE_IMAGE_MODEL_ID=<nombre-público-del-motor-de-imagen>
+   # Opcional: fija el idioma del pie (vacío = el de la petición)
+   GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish
    ```
+   En modo local con un modelo pequeño (3B en CPU o en 4 GB) añade también
+   `OLLAMA_TIMEOUT_SECONDS=600`, `OLLAMA_MAX_OUTPUT_TOKENS=2048`,
+   `GROUNDED_IMAGE_TOP_K=4` y `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0`. Ver
+   [ajustes de estabilidad](local-providers.md#ajustes-de-estabilidad-para-modelos-pequeños-3b).
 3. Haz `docker compose up -d backend` y revisa el log:
    `[grounded-image] composed (stage=canary)`.
 4. Con el usuario canary y el toggle **Image Generation** activo en un chat,
@@ -141,6 +147,10 @@ deliberado.
 | Corpus con una sola fuente para el tema | `NO_IMAGE_EVIDENCE` | Ingestar más documentos o reformular |
 | BM25 no construido (`/bm25_status` → `ready: false`) | `NO_IMAGE_EVIDENCE` en temas documentados | `curl -X POST http://localhost:8088/rebuild_bm25` y revisar el log `[BM25]` |
 | Open WebUI genera la imagen por su cuenta (toggle 🖼️ activo con Function Calling *Legacy*; en 0.11.4 *Default* equivale a *Native*) | Imagen sin pie ni procedencia | Function Calling **Native** (o *Default*); desactivar *Admin → Images* fuera del canary |
+| Ronda 1 del agente más larga que el timeout (modelo pequeño en CPU) | 504 tras `OLLAMA_TIMEOUT_SECONDS` | `OLLAMA_TIMEOUT_SECONDS=600`; bajar `GROUNDED_IMAGE_TOP_K` |
+| El agente entra en bucle y agota los tokens | 502; log `truncated at OLLAMA_MAX_OUTPUT_TOKENS` | `GROUNDED_IMAGE_TOP_K=4`, `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0`, `OLLAMA_MAX_OUTPUT_TOKENS=2048` |
+| Pie de imagen en otro idioma | Pie en inglés | `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish` |
+| Instrucción rechazada por el validador | `INVALID_GROUNDING`; log `[grounded-image] instrucción rechazada: …` | Leer el motivo en el log; con modelos pequeños, aplicar los ajustes de las filas anteriores |
 | Gemini rechaza el esquema de `generate_image` de Open WebUI | `PROVIDER_INCOMPATIBLE` o 4xx | Revisar el esquema; ajustar el adaptador |
 | Mensaje `role=tool` de Open WebUI con forma distinta | `INVALID_TOOL_CALL` en la ronda 2 | Capturar la forma con redacción y ajustar |
 | Más de una réplica | Duplicados o fallos de correlación | Mantener exactamente 1 (NO-GO Redis) |

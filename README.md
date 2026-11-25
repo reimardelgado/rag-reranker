@@ -492,6 +492,12 @@ curl -X POST http://localhost:8088/retrieve_hybrid \
 > Guía completa (Windows, GPU, perfiles de 4 GB y 20 GB, cambio de modo):
 > **[docs/local-providers.md](docs/local-providers.md)**. Personalizar la interfaz:
 > **[docs/openwebui-branding.md](docs/openwebui-branding.md)**.
+>
+> Con modelos pequeños (3B en CPU o en una GPU de 4 GB), el agente de imagen necesita
+> `OLLAMA_TIMEOUT_SECONDS=600`, `OLLAMA_MAX_OUTPUT_TOKENS=2048`,
+> `GROUNDED_IMAGE_TOP_K=4`, `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0` y, para el pie en
+> español, `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish`. Detalle en
+> [docs/local-providers.md](docs/local-providers.md#ajustes-de-estabilidad-para-modelos-pequeños-3b).
 
 Con GPU NVIDIA (Docker Desktop + WSL2 en Windows):
 
