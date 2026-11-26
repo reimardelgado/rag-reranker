@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from backend.api.chat import ChatDependencies, create_chat_router
 from backend.api.grounded_image import GroundedImageOrchestrator, GroundedImageRuntime
 from backend.config import GroundedImageConfig
-from backend.grounding.provenance import ADJACENT_LABEL, DOCUMENTARY_DISCLAIMER
+from backend.grounding.provenance import ADJACENT_LABEL, PROVENANCE_LABELS
 from backend.grounding.retrieval_evidence import reference_id_for
 from backend.metrics import GroundedImageMetrics, RolloutStage
 from backend.providers.ollama_native import OllamaNativeAdapter
@@ -192,10 +192,14 @@ async def test_local_two_round_loop_is_grounded_and_labelled():
     response = await _post(app, second)
     assert response.status_code == 200, response.text
     content = response.json()["choices"][0]["message"]["content"]
-    assert content.startswith("Reconstrucción interpretativa")
-    assert ADJACENT_LABEL in content and DOCUMENTARY_DISCLAIMER in content
-    assert script.kinds() == ["builder", "render", "continuation"]
-    assert "base64" not in json.dumps(script.bodies[-1])
+    # Default caption mode is the deterministic Spanish template: no third
+    # model call, and the pending continuation is released.
+    assert content.startswith("Reconstrucción interpretativa de **")
+    spanish = PROVENANCE_LABELS["es"]
+    assert spanish["label"] in content and spanish["disclaimer"] in content
+    assert ADJACENT_LABEL not in content
+    assert script.kinds() == ["builder", "render"]
+    assert "base64" not in content
     assert adapter.pending_continuation_count == 0
 
 

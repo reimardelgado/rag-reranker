@@ -20,6 +20,21 @@ from .validation import ValidatedGrounding, hash_canonical_prompt
 ADJACENT_LABEL = "Interpretive reconstruction"
 DOCUMENTARY_DISCLAIMER = "Generated pixels are not documentary evidence."
 
+# Display labels per caption locale.  "en" keeps the original public contract;
+# the sidecar JSON itself is never translated.
+PROVENANCE_LABELS: dict[str, dict[str, str]] = {
+    "en": {
+        "label": ADJACENT_LABEL,
+        "disclaimer": DOCUMENTARY_DISCLAIMER,
+        "summary": "Provenance",
+    },
+    "es": {
+        "label": "Reconstrucción interpretativa",
+        "disclaimer": "Los píxeles generados no son evidencia documental.",
+        "summary": "Procedencia",
+    },
+}
+
 
 class InvalidProvenanceError(ValueError):
     """Validated grounding could not form a safe bounded sidecar."""
@@ -172,6 +187,7 @@ def render_adjacent_provenance(
     provenance: ImageProvenance,
     *,
     max_sidecar_chars: int = 64 * 1024,
+    locale: str = "en",
 ) -> str:
     """Render an injection-safe collapsible sidecar adjacent to the result."""
 
@@ -193,10 +209,11 @@ def render_adjacent_provenance(
     )
     if len(sidecar.encode("utf-8")) > max_sidecar_chars:
         raise InvalidProvenanceError("Provenance sidecar exceeded its configured bound.")
+    labels = PROVENANCE_LABELS.get(locale, PROVENANCE_LABELS["en"])
     return (
-        f"\n\n**{ADJACENT_LABEL}**\n\n"
-        f"{DOCUMENTARY_DISCLAIMER}\n\n"
-        "<details><summary>Provenance</summary>\n\n"
+        f"\n\n**{labels['label']}**\n\n"
+        f"{labels['disclaimer']}\n\n"
+        f"<details><summary>{labels['summary']}</summary>\n\n"
         f"```json\n{sidecar}\n```\n"
         "</details>"
     )

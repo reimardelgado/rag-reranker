@@ -60,6 +60,12 @@ try:
         UntrustedCorrelationError,
     )
     from backend.grounding.builder import PROMPT_VERSION, GroundedInstructionBuilder
+    from backend.grounding.caption import (
+        build_template_caption,
+        caption_locale,
+        insufficient_evidence_message,
+        retrieval_unavailable_message,
+    )
     from backend.grounding.evidence import EvidencePacket
     from backend.grounding.intent import ImageIntent, classify_image_intent
     from backend.grounding.provenance import ImageProvenance, build_image_provenance
@@ -75,10 +81,14 @@ try:
         LatencyMetric,
     )
     from backend.providers.base import (
+        FinishCategory,
+        FinishEvent,
         FunctionCallEvent,
         InvalidProviderRequest,
         ProviderError,
         ProviderEvent,
+        ProviderMetadata,
+        TextEvent,
         ProviderRateLimited,
         ProviderTimeout,
         ProviderUnavailable,
@@ -107,6 +117,12 @@ except ImportError:  # pragma: no cover - top-level Docker import compatibility
         UntrustedCorrelationError,
     )
     from grounding.builder import PROMPT_VERSION, GroundedInstructionBuilder
+    from grounding.caption import (
+        build_template_caption,
+        caption_locale,
+        insufficient_evidence_message,
+        retrieval_unavailable_message,
+    )
     from grounding.evidence import EvidencePacket
     from grounding.intent import ImageIntent, classify_image_intent
     from grounding.provenance import ImageProvenance, build_image_provenance
@@ -114,10 +130,14 @@ except ImportError:  # pragma: no cover - top-level Docker import compatibility
     from grounding.validation import InvalidGroundingError
     from metrics import MAX_LATENCY_MS, CounterMetric, GroundedImageMetrics, LatencyMetric
     from providers.base import (
+        FinishCategory,
+        FinishEvent,
         FunctionCallEvent,
         InvalidProviderRequest,
         ProviderError,
         ProviderEvent,
+        ProviderMetadata,
+        TextEvent,
         ProviderRateLimited,
         ProviderTimeout,
         ProviderUnavailable,
@@ -130,7 +150,18 @@ except ImportError:  # pragma: no cover - top-level Docker import compatibility
 _logger = logging.getLogger("rag-pro.grounded-image")
 
 class GroundedImageError(ProviderError):
-    """Base class for bounded, recoverable image-path failures."""
+    """Base class for bounded, recoverable image-path failures.
+
+    ``user_message`` (optional) is a localized explanation the chat route
+    returns as a normal assistant turn instead of an error response.
+    """
+
+    user_message: str | None = None
+
+    def __init__(self, message: str = "Provider request failed.", *, user_message: str | None = None) -> None:
+        super().__init__(message)
+        if user_message is not None:
+            self.user_message = user_message
 
 
 class ImageAuthRequired(GroundedImageError):
@@ -263,6 +294,25 @@ def _render_user_message(canonical_json: str, caption_language: str | None = Non
     )
 
 
+def _subject_of(canonical_json: str) -> str:
+    try:
+        query = json.loads(canonical_json).get("query")
+    except (ValueError, AttributeError):
+        query = None
+    if not isinstance(query, str) or not query.strip():
+        return "el tema solicitado"
+    return retrieval_query_for_image(query)
+
+
+async def _single_text_turn(text: str) -> AsyncIterator[ProviderEvent]:
+    yield TextEvent(text)
+    yield FinishEvent(
+        category=FinishCategory.STOP,
+        native_reason="template",
+        metadata=ProviderMetadata(provider="grounded-image", candidate_count=1),
+    )
+
+
 def _sha256(*parts: str) -> str:
     digest = hashlib.sha256()
     for part in parts:
@@ -286,6 +336,7 @@ class GroundedImageOrchestrator:
     def __init__(self, runtime: GroundedImageRuntime) -> None:
         self._runtime = runtime
         self._config = runtime.config
+        self._locale = caption_locale(self._config.caption_language)
         self._metrics = runtime.metrics
         self._presence_lock = threading.Lock()
         self._presence = {name: 0 for name in _PRESENCE_FIELDS}
@@ -529,7 +580,10 @@ class GroundedImageOrchestrator:
             self._metrics.increment(CounterMetric.CORRELATION, "mismatch")
             raise ImageStateExpired("Correlation loop does not match this request.") from None
         except (CorrelationRetrievalFailed, CorrelationStateOversized, CorrelationStateExpired):
-            raise NoImageEvidence("Evidence retrieval is unavailable for this request.") from None
+            raise NoImageEvidence(
+                "Evidence retrieval is unavailable for this request.",
+                user_message=retrieval_unavailable_message(self._locale),
+            ) from None
         self._metrics.observe_latency(
             LatencyMetric.RETRIEVAL,
             _elapsed_ms(retrieval_started, self._runtime.monotonic()),
@@ -543,7 +597,13 @@ class GroundedImageOrchestrator:
             self._metrics.increment(CounterMetric.DECISIONS, "refused")
             raise NoImageEvidence(
                 "The documentation does not contain enough distinct sources "
-                "to ground an image for this request."
+                "to ground an image for this request.",
+                user_message=insufficient_evidence_message(
+                    retrieval_query_for_image(query),
+                    packet.distinct_reference_count,
+                    packet.minimum_references,
+                    self._locale,
+                ),
             )
 
         try:
@@ -688,7 +748,7 @@ class GroundedImageOrchestrator:
             self._metrics.increment(CounterMetric.CORRELATION, "mismatch")
             raise ImageStateExpired("Image request state is unusable.") from None
 
-        continuation = ImageToolContinuation(tool_call_id, provenance)
+        continuation = ImageToolContinuation(tool_call_id, provenance, locale=self._locale)
         validated = continuation.continuation_request(request)
         self._metrics.increment(CounterMetric.CORRELATION, "resolved")
 
@@ -750,12 +810,20 @@ class GroundedImageOrchestrator:
                 "tool_choice": "none",
             }
         )
+        if self._config.caption_mode == "template":
+            # The caption comes from the validated facts, so the provider's
+            # pending continuation (if any) is released without a model call.
+            self._runtime.adapter.discard_continuation(tool_call_id)
+            caption = build_template_caption(
+                provenance, _subject_of(canonical_json), self._locale
+            )
+            final_turn = _single_text_turn(caption)
+        else:
+            final_turn = self._runtime.adapter.complete(provider_request)
         try:
             events = [
                 event
-                async for event in continuation.append_provenance(
-                    self._runtime.adapter.complete(provider_request)
-                )
+                async for event in continuation.append_provenance(final_turn)
             ]
         except InvalidImageToolCall:
             self._metrics.increment(CounterMetric.VALIDATION_FAILURES, "blocked_provenance")

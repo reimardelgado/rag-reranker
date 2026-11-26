@@ -19,7 +19,7 @@ from backend.api.chat import ChatDependencies, create_chat_router
 from backend.api.composition import build_grounded_image_composition
 from backend.api.grounded_image import GroundedImageOrchestrator, GroundedImageRuntime
 from backend.config import ConfigurationError, GroundedImageConfig
-from backend.grounding.provenance import ADJACENT_LABEL, DOCUMENTARY_DISCLAIMER
+from backend.grounding.provenance import ADJACENT_LABEL, DOCUMENTARY_DISCLAIMER, PROVENANCE_LABELS
 from backend.grounding.retrieval_evidence import reference_id_for
 from backend.metrics import GroundedImageMetrics, RolloutStage
 from backend.providers.gemini_native import GeminiNativeAdapter
@@ -235,7 +235,10 @@ def _sse(body):
 
 @pytest.mark.asyncio
 async def test_two_round_loop_generates_grounded_tool_call_and_labelled_caption():
-    app, script, adapter, orchestrator, retrieved, text_calls = _build()
+    # Model-written caption: exercises the native continuation round-trip.
+    app, script, adapter, orchestrator, retrieved, text_calls = _build(
+        _config(caption_mode="model", caption_language="English")
+    )
     first = _round_one()
 
     response = await _post(app, first, _headers())
@@ -324,11 +327,56 @@ async def test_access_failures_never_contact_provider(payload_kwargs, headers, s
 
 @pytest.mark.asyncio
 async def test_insufficient_evidence_refuses_before_any_provider_call():
-    app, script, *_ = _build(blocks=[BLOCKS[0]])
+    app, script, _, orchestrator, *_ = _build(blocks=[BLOCKS[0]])
     response = await _post(app, _round_one(), _headers())
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "NO_IMAGE_EVIDENCE"
+    # The refusal is a normal assistant turn the user can act on.
+    assert response.status_code == 200, response.text
+    choice = response.json()["choices"][0]
+    assert choice["finish_reason"] == "stop"
+    content = choice["message"]["content"]
+    assert content.startswith("No puedo generar una imagen fundamentada de **oppidum ibero**")
+    assert "1 fuente(s)" in content and "al menos 2" in content
+    assert not choice["message"].get("tool_calls")
     assert script.bodies == []
+    counters = orchestrator.metrics.snapshot()["counters"]
+    assert counters["grounded_image_decisions_total"]["refused"] == 1
+
+
+@pytest.mark.asyncio
+async def test_insufficient_evidence_refusal_streams_as_text():
+    app, script, *_ = _build(blocks=[BLOCKS[0]])
+    response = await _post(app, _round_one(stream=True), _headers())
+    assert response.status_code == 200
+    frames = _sse(response.text)
+    assert frames[-1] == "[DONE]"
+    text = "".join(
+        frame["choices"][0]["delta"].get("content") or ""
+        for frame in frames[:-1]
+        if frame.get("choices")
+    )
+    assert text.startswith("No puedo generar una imagen fundamentada")
+    assert script.bodies == []
+
+
+@pytest.mark.asyncio
+async def test_template_caption_lists_validated_facts_without_a_model_call():
+    app, script, adapter, *_ = _build()
+    first = _round_one()
+    response = await _post(app, first, _headers())
+    tool_call = response.json()["choices"][0]["message"]["tool_calls"][0]
+    response = await _post(app, _round_two(first, tool_call), _headers())
+    assert response.status_code == 200, response.text
+    content = response.json()["choices"][0]["message"]["content"]
+    assert content.startswith(
+        "Reconstrucción interpretativa de **oppidum ibero** basada en 2 fuentes"
+    )
+    assert "Elementos documentados:" in content
+    assert "Sin documentar (no se representa con certeza):" in content
+    spanish = PROVENANCE_LABELS["es"]
+    assert spanish["label"] in content and spanish["disclaimer"] in content
+    assert f"<summary>{spanish['summary']}</summary>" in content
+    assert script.kinds() == ["builder", "render"]  # no caption model call
+    assert adapter.pending_continuation_count == 0
 
 
 @pytest.mark.asyncio
@@ -395,7 +443,7 @@ async def test_chat_scope_correlates_without_message_header():
     tool_call = response.json()["choices"][0]["message"]["tool_calls"][0]
     response = await _post(app, _round_two(first, tool_call), _headers(message=None))
     assert response.status_code == 200, response.text
-    assert ADJACENT_LABEL in response.json()["choices"][0]["message"]["content"]
+    assert PROVENANCE_LABELS["es"]["label"] in response.json()["choices"][0]["message"]["content"]
 
 
 @pytest.mark.asyncio
@@ -426,8 +474,8 @@ async def test_shadow_refuses_subject_absent_from_the_corpus():
 async def test_canary_fails_closed_for_subject_absent_from_the_corpus():
     app, script, *_ = _build()
     response = await _post(app, _round_one(text="Dibuja una imagen de un astronauta en Marte"), _headers())
-    assert "NO_IMAGE_EVIDENCE" in response.text
-    assert "tool_calls" not in response.text
+    assert "No puedo generar una imagen fundamentada" in response.text
+    assert '"tool_calls"' not in response.text
     assert script.bodies == []  # no grounding or render call reached the provider
 
 

@@ -32,6 +32,7 @@ try:
         ProviderAdapter,
         ProviderError,
         ProviderEvent,
+        ProviderMetadata,
         TextEvent,
     )
     from backend.grounding.provenance import ImageProvenance, render_adjacent_provenance
@@ -53,6 +54,7 @@ except ImportError:  # Docker runs backend/app.py as top-level ``app``.
         ProviderAdapter,
         ProviderError,
         ProviderEvent,
+        ProviderMetadata,
         TextEvent,
     )
     from grounding.provenance import ImageProvenance, render_adjacent_provenance
@@ -308,12 +310,14 @@ class ImageToolContinuation:
         provenance: ImageProvenance,
         *,
         limits: ImageToolContinuationLimits | None = None,
+        locale: str = "en",
     ) -> None:
         if not isinstance(tool_call_id, str) or not tool_call_id.strip():
             raise InvalidImageToolCall("Image continuation requires a tool-call ID.")
         self._tool_call_id = tool_call_id
         self._provenance = provenance.model_copy(deep=True)
         self._limits = limits or ImageToolContinuationLimits()
+        self._locale = locale
 
     def continuation_request(
         self, request: ChatCompletionRequest
@@ -371,6 +375,7 @@ class ImageToolContinuation:
             render_adjacent_provenance(
                 self._provenance,
                 max_sidecar_chars=self._limits.max_sidecar_chars,
+                locale=self._locale,
             )
         )
         yield finishes[0]
@@ -493,10 +498,22 @@ async def _image_response(
         else:
             events = await orchestrator.continue_(req, headers)
     except ProviderError as error:
-        return JSONResponse(
-            status_code=error.status_code,
-            content=_openai_error(error, response_id),
-        )
+        user_message = getattr(error, "user_message", None)
+        if not user_message:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_openai_error(error, response_id),
+            )
+        # Refusals the user can act on (e.g. no evidence in the corpus) are
+        # answered as a normal assistant turn instead of a client error.
+        events = [
+            TextEvent(user_message),
+            FinishEvent(
+                category=FinishCategory.STOP,
+                native_reason="refused",
+                metadata=ProviderMetadata(provider="grounded-image", candidate_count=1),
+            ),
+        ]
     if req.stream:
         normalized = normalizer.stream(
             _replay(events), model=req.model, response_id=response_id
