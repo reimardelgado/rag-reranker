@@ -63,7 +63,7 @@ Los modelos son orientativos; confirmar los tags con `ollama list` y en la bibli
 | `OLLAMA_TIMEOUT_SECONDS` | `600` | `300` |
 | `OLLAMA_NUM_CTX` | `8192` | `16384` |
 | `OLLAMA_MAX_OUTPUT_TOKENS` | `2048` | `2048` |
-| `GROUNDED_IMAGE_TOP_K` | `4` | `8` (defecto) |
+| `GROUNDED_IMAGE_TOP_K` | `8` (defecto) | `8` (defecto); `16` si da `NO_IMAGE_EVIDENCE` |
 | `GROUNDED_IMAGE_BUILDER_TEMPERATURE` | `0` | `0.2` (defecto) |
 | `GROUNDED_IMAGE_CAPTION_LANGUAGE` | `Spanish` | `Spanish` o vacío |
 | ComfyUI | SD 1.5, 512×512, `--lowvram` | SDXL 1024×1024 (~7 GB) o FLUX.1 schnell fp8 |
@@ -80,7 +80,7 @@ Con `qwen2.5:3b` en CPU se observaron tres fallos en el canary local (19-nov):
 | Síntoma | Causa | Ajuste |
 |---|---|---|
 | 504 en la ronda 1 | La ronda supera `OLLAMA_TIMEOUT_SECONDS=300` | `OLLAMA_TIMEOUT_SECONDS=600` |
-| 502 tras ~4 min; log `truncated at OLLAMA_MAX_OUTPUT_TOKENS` | El modelo entra en bucle repitiendo hechos hasta agotar los tokens | `GROUNDED_IMAGE_TOP_K=4` y `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0` |
+| 502 tras ~4 min; log `truncated at OLLAMA_MAX_OUTPUT_TOKENS` | El modelo entra en bucle repitiendo hechos hasta agotar los tokens | `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0` y el esquema acotado (abajo) |
 | Pie de imagen en inglés | Los modelos pequeños siguen el idioma del prompt del sistema | `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish` |
 
 Además, con el adaptador `ollama` el backend usa un **esquema acotado** para la
