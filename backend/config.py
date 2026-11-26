@@ -86,6 +86,36 @@ def _bounded_fraction(
     return parsed
 
 
+_TEMPERATURE = re.compile(r"^(0(\.[0-9]{1,2})?|1(\.0{1,2})?)$")
+
+
+def _bounded_temperature(
+    environ: Mapping[str, str], name: str, default: float
+) -> float:
+    """Parse a strict sampling temperature in [0, 1], e.g. ``0`` or ``0.2``."""
+
+    value = environ.get(name)
+    if value is None:
+        return default
+    if not isinstance(value, str) or not _TEMPERATURE.match(value):
+        raise ConfigurationError(f"{name} must be a decimal in [0, 1].")
+    return float(value)
+
+
+_LANGUAGE = re.compile(r"^[A-Za-z][A-Za-z -]{0,31}$")
+
+
+def _caption_language(environ: Mapping[str, str], name: str) -> str | None:
+    """Optional caption language name such as ``Spanish``; empty means follow the request."""
+
+    value = environ.get(name)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not _LANGUAGE.match(value):
+        raise ConfigurationError(f"{name} must be a plain language name.")
+    return value.strip()
+
+
 def _allowlist(
     environ: Mapping[str, str], name: str, *, max_item_bytes: int
 ) -> frozenset[str]:
@@ -188,8 +218,18 @@ class GroundedImageConfig:
     # canonical_json for language-model engines (Gemini); diffusion for
     # CLIP-based engines (ComfyUI/A1111). Defaults follow DEFAULT_PROVIDER.
     prompt_format: str = "canonical_json"
+    # Evidence fragments handed to the image agent. Every distinct reference
+    # must appear in its instruction, so a small local model needs fewer.
+    evidence_top_k: int = 8
+    builder_temperature: float = 0.2
+    # Language of the round-two caption; None follows the user's request.
+    caption_language: str | None = None
 
     def __post_init__(self) -> None:
+        if self.evidence_top_k < self.minimum_references:
+            raise ConfigurationError(
+                "GROUNDED_IMAGE_TOP_K cannot be below GROUNDED_IMAGE_MIN_REFERENCES."
+            )
         self._validate_activation()
 
     @classmethod
@@ -290,6 +330,15 @@ class GroundedImageConfig:
                 "GROUNDED_IMAGE_PROMPT_FORMAT",
                 "diffusion" if mode.is_local else "canonical_json",
                 max_bytes=32,
+            ),
+            evidence_top_k=_bounded_int(
+                environ, "GROUNDED_IMAGE_TOP_K", 8, minimum=2, maximum=32
+            ),
+            builder_temperature=_bounded_temperature(
+                environ, "GROUNDED_IMAGE_BUILDER_TEMPERATURE", 0.2
+            ),
+            caption_language=_caption_language(
+                environ, "GROUNDED_IMAGE_CAPTION_LANGUAGE"
             ),
         )
         return config

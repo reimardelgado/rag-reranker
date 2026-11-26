@@ -62,12 +62,38 @@ Los modelos son orientativos; confirmar los tags con `ollama list` y en la bibli
 | `OLLAMA_KEEP_ALIVE` | `1m` | `30m` |
 | `OLLAMA_TIMEOUT_SECONDS` | `600` | `300` |
 | `OLLAMA_NUM_CTX` | `8192` | `16384` |
-| Medido en vivo (PC, CPU, `qwen2.5:3b`) | Chat ~25 s; imagen: ronda 1 ~5 min, ronda 2 ~1 min | — |
+| `OLLAMA_MAX_OUTPUT_TOKENS` | `2048` | `2048` |
+| `GROUNDED_IMAGE_TOP_K` | `8` (defecto) | `8` (defecto); `16` si da `NO_IMAGE_EVIDENCE` |
+| `GROUNDED_IMAGE_BUILDER_TEMPERATURE` | `0` | `0.2` (defecto) |
+| `GROUNDED_IMAGE_CAPTION_LANGUAGE` | `Spanish` | `Spanish` o vacío |
+| ComfyUI | SD 1.5, 512×512, `--lowvram` | SDXL 1024×1024 (~7 GB) o FLUX.1 schnell fp8 |
+| Tiempo aproximado | Respuesta en decenas de segundos; imagen 30–90 s | Respuesta en segundos; imagen 5–20 s |
+| Medido en vivo (PC, CPU, `qwen2.5:3b`) | Chat ~25 s; imagen completa ~3 min (agente 1 min 22 s, `generate_image` 17 s, ComfyUI ~63 s, pie 22 s) | — |
 
 **No bajar `OLLAMA_NUM_CTX` de 8192.** Con el valor por defecto de Ollama (4096) el
 prompt con evidencia no cabe, el modelo entra en bucle y la ronda acaba por timeout.
-| ComfyUI | SD 1.5, 512×512, `--lowvram` | SDXL 1024×1024 (~7 GB) o FLUX.1 schnell fp8 |
-| Tiempo aproximado | Respuesta en decenas de segundos; imagen 30–90 s | Respuesta en segundos; imagen 5–20 s |
+
+### Ajustes de estabilidad para modelos pequeños (3B)
+
+Con `qwen2.5:3b` en CPU se observaron tres fallos en el canary local (19-nov):
+
+| Síntoma | Causa | Ajuste |
+|---|---|---|
+| 504 en la ronda 1 | La ronda supera `OLLAMA_TIMEOUT_SECONDS=300` | `OLLAMA_TIMEOUT_SECONDS=600` |
+| 502 tras ~4 min; log `truncated at OLLAMA_MAX_OUTPUT_TOKENS` | El modelo entra en bucle repitiendo hechos hasta agotar los tokens | `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0` y el esquema acotado (abajo) |
+| Pie de imagen en inglés | Los modelos pequeños siguen el idioma del prompt del sistema | `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish` |
+
+Además, con el adaptador `ollama` el backend usa un **esquema acotado** para la
+instrucción con evidencia (máximo 6 hechos, 4 elementos por lista y textos de
+240/160/120 caracteres). La gramática de Ollama impide así que el modelo genere
+listas infinitas: en la prueba, la instrucción completa ocupó 157 tokens. Si aun
+así se alcanza el tope, el backend responde con un error explícito en lugar de
+intentar validar un JSON cortado. Cuando se rechaza una instrucción, el motivo
+queda en el log: `[grounded-image] instrucción rechazada: …`.
+
+En el servidor de 20 GB con un modelo de 7B–14B en GPU no hacen falta estos
+recortes: basta con los valores por defecto y fijar el idioma del pie si se quiere
+garantizar el español.
 
 Con 20 GB caben a la vez un LLM de 14B en Q4 y SDXL. FLUX junto a un 14B queda justo;
 con FLUX usar un LLM de 7B.

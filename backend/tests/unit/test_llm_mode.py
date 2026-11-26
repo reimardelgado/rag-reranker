@@ -93,3 +93,24 @@ def test_invalid_ollama_timeout_is_rejected():
             retrieval_model_id="emb",
             api_key=None,
         )
+
+
+def test_composition_applies_evidence_top_k_and_builder_temperature():
+    env = {**ENABLED, "GROUNDED_IMAGE_TOP_K": "4", "GROUNDED_IMAGE_BUILDER_TEMPERATURE": "0"}
+    orchestrator, _ = build_grounded_image_composition(
+        env, retrieve_blocks=lambda q, k: [], retrieval_model_id="emb", api_key=None
+    )
+    assert orchestrator._runtime.top_k == 4
+    assert orchestrator._builder._temperature == 0.0
+    default, _ = build_grounded_image_composition(
+        ENABLED, retrieve_blocks=lambda q, k: [], retrieval_model_id="emb", api_key=None
+    )
+    assert default._runtime.top_k == 8 and default._builder._temperature == 0.2
+
+
+def test_local_composition_bounds_the_instruction_schema():
+    orchestrator, _ = build_grounded_image_composition(
+        ENABLED, retrieve_blocks=lambda q, k: [], retrieval_model_id="emb", api_key=None
+    )
+    schema = orchestrator._builder._schema
+    assert schema["properties"]["documented_facts"]["maxItems"] > 0

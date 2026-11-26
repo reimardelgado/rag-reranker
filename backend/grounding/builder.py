@@ -11,6 +11,7 @@ fails closed with ``InvalidGroundingError``.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from copy import deepcopy
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -93,6 +94,39 @@ _INSTRUCTION_SCHEMA: dict[str, Any] = {
 }
 
 
+# Output bounds for grammar-constrained decoders (Ollama ``format``).  Without
+# them a small model can keep appending list items until it hits the token
+# cap and returns truncated, non-JSON output.  They stay within what the
+# diffusion prompt (77 CLIP tokens) and the caption can use anyway.
+MAX_FACTS = 6
+MAX_LIST_ITEMS = 4
+MAX_FACT_CHARS = 240
+MAX_FACT_EN_CHARS = 160
+MAX_ITEM_CHARS = 120
+MAX_REFERENCE_IDS = 4
+MAX_REFERENCE_ID_CHARS = 64
+
+
+def bounded_instruction_schema() -> dict[str, Any]:
+    """Return the instruction schema with explicit item and length bounds."""
+
+    schema = deepcopy(_INSTRUCTION_SCHEMA)
+    props = schema["properties"]
+    facts = props["documented_facts"]
+    facts["maxItems"] = MAX_FACTS
+    fact = facts["items"]["properties"]
+    fact["text"]["maxLength"] = MAX_FACT_CHARS
+    fact["text_en"]["maxLength"] = MAX_FACT_EN_CHARS
+    fact["reference_ids"]["maxItems"] = MAX_REFERENCE_IDS
+    fact["reference_ids"]["items"]["maxLength"] = MAX_REFERENCE_ID_CHARS
+    for name in ("inferred_elements", "uncertainties", "forbidden_additions"):
+        props[name]["maxItems"] = MAX_LIST_ITEMS
+        props[name]["items"]["maxLength"] = MAX_ITEM_CHARS
+    for name in ("style", "view"):
+        props[name]["maxLength"] = MAX_ITEM_CHARS
+    return schema
+
+
 class _Adapter(Protocol):
     def complete(self, request: ChatCompletionRequest) -> AsyncIterator[ProviderEvent]: ...
 
@@ -129,6 +163,7 @@ class GroundedInstructionBuilder:
         max_events: int = 16,
         temperature: float = 0.2,
         prompt_format: str = "canonical_json",
+        bounded_output: bool = False,
     ) -> None:
         if not isinstance(model, str) or not model.strip():
             raise ValueError("A builder model is required.")
@@ -141,6 +176,7 @@ class GroundedInstructionBuilder:
         self._max_events = max_events
         self._temperature = temperature
         self._prompt_format = prompt_format
+        self._schema = bounded_instruction_schema() if bounded_output else _INSTRUCTION_SCHEMA
 
     def build_request(self, packet: EvidencePacket, *, nonce: str | None = None) -> ChatCompletionRequest:
         block = serialize_untrusted_evidence(packet, nonce=nonce, limits=self._limits)
@@ -167,7 +203,7 @@ class GroundedInstructionBuilder:
                         "function": {
                             "name": INSTRUCTION_TOOL_NAME,
                             "description": "Submit the structured, evidence-grounded instruction.",
-                            "parameters": _INSTRUCTION_SCHEMA,
+                            "parameters": self._schema,
                         },
                     }
                 ],
