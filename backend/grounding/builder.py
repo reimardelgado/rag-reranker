@@ -10,7 +10,7 @@ fails closed with ``InvalidGroundingError``.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from copy import deepcopy
 from typing import Any, Protocol
 
@@ -107,18 +107,30 @@ MAX_REFERENCE_IDS = 4
 MAX_REFERENCE_ID_CHARS = 64
 
 
-def bounded_instruction_schema() -> dict[str, Any]:
-    """Return the instruction schema with explicit item and length bounds."""
+def bounded_instruction_schema(reference_ids: Sequence[str] = ()) -> dict[str, Any]:
+    """Return the instruction schema with explicit item and length bounds.
+
+    When ``reference_ids`` is given, each cited ID is restricted to that set
+    with ``enum``.  A grammar-constrained decoder then cannot miscopy the
+    opaque ``ref-…`` IDs, which small models otherwise do often enough to
+    fail validation.  Validation still checks every ID afterwards.
+    """
 
     schema = deepcopy(_INSTRUCTION_SCHEMA)
     props = schema["properties"]
     facts = props["documented_facts"]
+    facts["minItems"] = 1
     facts["maxItems"] = MAX_FACTS
     fact = facts["items"]["properties"]
     fact["text"]["maxLength"] = MAX_FACT_CHARS
     fact["text_en"]["maxLength"] = MAX_FACT_EN_CHARS
+    fact["reference_ids"]["minItems"] = 1
     fact["reference_ids"]["maxItems"] = MAX_REFERENCE_IDS
-    fact["reference_ids"]["items"]["maxLength"] = MAX_REFERENCE_ID_CHARS
+    allowed = list(dict.fromkeys(reference_ids))
+    if allowed:
+        fact["reference_ids"]["items"]["enum"] = allowed
+    else:
+        fact["reference_ids"]["items"]["maxLength"] = MAX_REFERENCE_ID_CHARS
     for name in ("inferred_elements", "uncertainties", "forbidden_additions"):
         props[name]["maxItems"] = MAX_LIST_ITEMS
         props[name]["items"]["maxLength"] = MAX_ITEM_CHARS
@@ -176,7 +188,14 @@ class GroundedInstructionBuilder:
         self._max_events = max_events
         self._temperature = temperature
         self._prompt_format = prompt_format
-        self._schema = bounded_instruction_schema() if bounded_output else _INSTRUCTION_SCHEMA
+        self._bounded_output = bounded_output
+
+    def _schema_for(self, packet: EvidencePacket) -> dict[str, Any]:
+        if not self._bounded_output:
+            return _INSTRUCTION_SCHEMA
+        return bounded_instruction_schema(
+            [reference.reference_id for reference in packet.references]
+        )
 
     def build_request(self, packet: EvidencePacket, *, nonce: str | None = None) -> ChatCompletionRequest:
         block = serialize_untrusted_evidence(packet, nonce=nonce, limits=self._limits)
@@ -203,7 +222,7 @@ class GroundedInstructionBuilder:
                         "function": {
                             "name": INSTRUCTION_TOOL_NAME,
                             "description": "Submit the structured, evidence-grounded instruction.",
-                            "parameters": self._schema,
+                            "parameters": self._schema_for(packet),
                         },
                     }
                 ],

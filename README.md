@@ -239,7 +239,8 @@ de error y termina una sola vez con `[DONE]`. Los códigos normativos son:
 | 403 | `FORBIDDEN` | Rechazar permiso, capability, toggle, usuario o modelo fuera de allowlist. |
 | 409 | `IMAGE_DISABLED`, `UNSUPPORTED_TOOL` | Mantener el flujo de imagen cerrado; no degradar a generación libre. |
 | 409 | `STATE_EXPIRED`, `LOOP_LIMIT`, `DUPLICATE_SUPPRESSED` | Detener la continuación o duplicado sin repetir recuperación ni llamada paga. |
-| 422 | `NO_IMAGE_EVIDENCE`, `INVALID_GROUNDING`, `INVALID_TOOL_CALL` | Rechazar evidencia, prompt o tool call inválido antes de emitir `generate_image`. |
+| 200 | `NO_IMAGE_EVIDENCE` | Sin fuentes suficientes en el corpus: responder como turno normal del asistente explicando cuántas fuentes hay y cuántas se necesitan, sin emitir `generate_image`. |
+| 422 | `INVALID_GROUNDING`, `INVALID_TOOL_CALL` | Rechazar prompt o tool call inválido antes de emitir `generate_image`. |
 | 429 | `RATE_LIMITED` | Propagar throttling recuperable sin reintento automático de generación paga. |
 | 502 | `PROVIDER_UNAVAILABLE`, `PROVIDER_INCOMPATIBLE` | Fallar cerrado ante 5xx o protocolo no conforme. |
 | 504 | `PROVIDER_TIMEOUT` | Cancelar/cerrar el iterador sin convertir el fallo en éxito. |
@@ -495,8 +496,9 @@ curl -X POST http://localhost:8088/retrieve_hybrid \
 >
 > Con modelos pequeños (3B en CPU o en una GPU de 4 GB), el agente de imagen necesita
 > `OLLAMA_TIMEOUT_SECONDS=600`, `OLLAMA_MAX_OUTPUT_TOKENS=2048`,
-> `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0` y, para el pie en español,
-> `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish`. Mantén `GROUNDED_IMAGE_TOP_K` en 8
+> `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0`. El pie se construye por defecto a partir de
+> los hechos validados (`GROUNDED_IMAGE_CAPTION_MODE=template`), siempre en español
+> salvo `GROUNDED_IMAGE_CAPTION_LANGUAGE=English`. Mantén `GROUNDED_IMAGE_TOP_K` en 8
 > (defecto): con 4 la puerta de evidencia rechaza temas documentados. Detalle en
 > [docs/local-providers.md](docs/local-providers.md#ajustes-de-estabilidad-para-modelos-pequeños-3b).
 

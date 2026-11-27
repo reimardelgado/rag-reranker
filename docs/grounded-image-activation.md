@@ -18,12 +18,23 @@ consumir el motor de imagen.
 4. **Open WebUI ejecuta su motor de imagen** con sus propias credenciales y
    muestra la imagen. Este es el único paso pago.
 5. Open WebUI devuelve el resultado de la herramienta. El backend responde con un
-   pie de imagen, la etiqueta **"Interpretive reconstruction"**, la advertencia
-   *"Generated pixels are not documentary evidence."* y el sidecar de procedencia
-   (fuentes y páginas, hechos documentados, inferidos e inciertos, prohibidos,
-   modelos y hash).
+   pie de imagen, la etiqueta **«Reconstrucción interpretativa»**, la advertencia
+   *«Los píxeles generados no son evidencia documental.»* y el sidecar de
+   procedencia (fuentes y páginas, hechos documentados, inferidos e inciertos,
+   prohibidos, modelos y hash). Con `GROUNDED_IMAGE_CAPTION_MODE=template`
+   (defecto) el pie se arma sin llamar al modelo: lista los hechos documentados con
+   su fuente y página, y los aspectos sin documentar. Con `model`, lo redacta el
+   modelo de chat. Las etiquetas salen en inglés solo con
+   `GROUNDED_IMAGE_CAPTION_LANGUAGE=English`.
 
-Si cualquier paso falla, el backend devuelve un error acotado (`NO_IMAGE_EVIDENCE`,
+Si el corpus no aporta al menos `GROUNDED_IMAGE_MIN_REFERENCES` fuentes distintas
+sobre el tema, el backend responde como un mensaje normal del asistente: «No puedo
+generar una imagen fundamentada de **…**: la documentación interna aporta N
+fuente(s) distinta(s) sobre el tema y se necesitan al menos M…». No llama al
+modelo ni al motor de imagen, y la métrica `grounded_image_decisions_total{refused}`
+lo cuenta.
+
+Si cualquier otro paso falla, el backend devuelve un error acotado (
 `INVALID_GROUNDING`, `UNSUPPORTED_TOOL`, `FORBIDDEN`, `AUTH_REQUIRED`,
 `STATE_EXPIRED`, `DUPLICATE_SUPPRESSED`, etc.) y **nunca** emite una imagen libre.
 
@@ -104,8 +115,10 @@ deliberado.
    GROUNDED_IMAGE_AUTHORIZED_USERS=<id-del-usuario-canary>
    GROUNDED_IMAGE_AUTHORIZED_MODELS=<id-del-modelo-en-open-webui>
    GROUNDED_IMAGE_IMAGE_MODEL_ID=<nombre-público-del-motor-de-imagen>
-   # Opcional: fija el idioma del pie (vacío = el de la petición)
+   # Opcional: idioma del pie, etiquetas y rechazos (vacío = español; English = inglés)
    GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish
+   # Opcional: template (defecto, pie desde los hechos validados) o model
+   GROUNDED_IMAGE_CAPTION_MODE=template
    ```
    En modo local con un modelo pequeño (3B en CPU o en 4 GB) añade también
    `OLLAMA_TIMEOUT_SECONDS=600`, `OLLAMA_MAX_OUTPUT_TOKENS=2048` y
@@ -144,13 +157,13 @@ deliberado.
 | Open WebUI no envía `X-OpenWebUI-Message-Id` | `AUTH_REQUIRED` en cada petición de imagen | `GROUNDED_IMAGE_CORRELATION_SCOPE=chat` |
 | La conexión guardada en la BD de Open WebUI no usa el token | `AUTH_REQUIRED` | Corregir la API key en *Admin → Connections* |
 | Toggle de imagen apagado | `UNSUPPORTED_TOOL` | Activar *Image Generation* en el chat |
-| `GROUNDED_IMAGE_TOP_K` demasiado bajo (p. ej. 4) | `NO_IMAGE_EVIDENCE` en temas documentados | `GROUNDED_IMAGE_TOP_K=8` (defecto); 16 si persiste |
-| Corpus con una sola fuente para el tema | `NO_IMAGE_EVIDENCE` | Ingestar más documentos o reformular |
-| BM25 no construido (`/bm25_status` → `ready: false`) | `NO_IMAGE_EVIDENCE` en temas documentados | `curl -X POST http://localhost:8088/rebuild_bm25` y revisar el log `[BM25]` |
+| `GROUNDED_IMAGE_TOP_K` demasiado bajo (p. ej. 4) | «No puedo generar una imagen fundamentada…» en temas documentados | `GROUNDED_IMAGE_TOP_K=8` (defecto); 16 si persiste |
+| Corpus con una sola fuente para el tema | «No puedo generar una imagen fundamentada… 1 fuente(s)…» | Ingestar más documentos o reformular |
+| BM25 no construido (`/bm25_status` → `ready: false`) | «No puedo generar una imagen fundamentada…» en temas documentados | `curl -X POST http://localhost:8088/rebuild_bm25` y revisar el log `[BM25]` |
 | Open WebUI genera la imagen por su cuenta (toggle 🖼️ activo con Function Calling *Legacy*; en 0.11.4 *Default* equivale a *Native*) | Imagen sin pie ni procedencia | Function Calling **Native** (o *Default*); desactivar *Admin → Images* fuera del canary |
 | Ronda 1 del agente más larga que el timeout (modelo pequeño en CPU) | 504 tras `OLLAMA_TIMEOUT_SECONDS` | `OLLAMA_TIMEOUT_SECONDS=600` |
 | El agente entra en bucle y agota los tokens | 502; log `truncated at OLLAMA_MAX_OUTPUT_TOKENS` | `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0`, `OLLAMA_MAX_OUTPUT_TOKENS=2048` (el esquema acotado ya limita la salida) |
-| Pie de imagen en otro idioma | Pie en inglés | `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish` |
+| Pie de imagen en otro idioma | Pie en inglés con `GROUNDED_IMAGE_CAPTION_MODE=model` | Volver a `template` (defecto); el 3B ignora `GROUNDED_IMAGE_CAPTION_LANGUAGE` |
 | Instrucción rechazada por el validador | `INVALID_GROUNDING`; log `[grounded-image] instrucción rechazada: …` | Leer el motivo en el log; con modelos pequeños, aplicar los ajustes de las filas anteriores |
 | Gemini rechaza el esquema de `generate_image` de Open WebUI | `PROVIDER_INCOMPATIBLE` o 4xx | Revisar el esquema; ajustar el adaptador |
 | Mensaje `role=tool` de Open WebUI con forma distinta | `INVALID_TOOL_CALL` en la ronda 2 | Capturar la forma con redacción y ajustar |

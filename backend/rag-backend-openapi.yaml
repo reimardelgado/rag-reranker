@@ -424,7 +424,7 @@ x-grounded-image-contract:
   max-tool-iterations: 3
   replica-count: 1
   multi-replica: no-go-pending-redis-spike
-  disclosure-label: Interpretive reconstruction
+  disclosure-label: Reconstrucción interpretativa (es, defecto) / Interpretive reconstruction (en)
   documentary-evidence-disclaimer-required: true
   private-headers:
     - X-OpenWebUI-User-Id

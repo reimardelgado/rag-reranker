@@ -159,6 +159,7 @@ ADAPTER_GEMINI = "gemini_native"
 ADAPTER_OLLAMA = "ollama"
 IMAGE_ADAPTERS = frozenset({ADAPTER_GEMINI, ADAPTER_OLLAMA})
 PROMPT_FORMATS = frozenset({"canonical_json", "diffusion"})
+CAPTION_MODES = frozenset({"template", "model"})
 
 
 def _secret(environ: Mapping[str, str], name: str) -> str | None:
@@ -224,6 +225,9 @@ class GroundedImageConfig:
     builder_temperature: float = 0.2
     # Language of the round-two caption; None follows the user's request.
     caption_language: str | None = None
+    # "template" builds the caption from the validated facts (no model call);
+    # "model" lets the chat model write it in round two.
+    caption_mode: str = "template"
 
     def __post_init__(self) -> None:
         if self.evidence_top_k < self.minimum_references:
@@ -340,6 +344,9 @@ class GroundedImageConfig:
             caption_language=_caption_language(
                 environ, "GROUNDED_IMAGE_CAPTION_LANGUAGE"
             ),
+            caption_mode=_bounded_text(
+                environ, "GROUNDED_IMAGE_CAPTION_MODE", "template", max_bytes=16
+            ),
         )
         return config
 
@@ -348,6 +355,8 @@ class GroundedImageConfig:
             raise ConfigurationError("GROUNDED_IMAGE_ADAPTER is unsupported.")
         if self.prompt_format not in PROMPT_FORMATS:
             raise ConfigurationError("GROUNDED_IMAGE_PROMPT_FORMAT is unsupported.")
+        if self.caption_mode not in CAPTION_MODES:
+            raise ConfigurationError("GROUNDED_IMAGE_CAPTION_MODE is unsupported.")
         if self.correlation_scope not in CORRELATION_SCOPES:
             raise ConfigurationError("GROUNDED_IMAGE_CORRELATION_SCOPE is unsupported.")
         if self.enabled and self.shadow:

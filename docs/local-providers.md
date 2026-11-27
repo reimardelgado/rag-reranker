@@ -63,12 +63,13 @@ Los modelos son orientativos; confirmar los tags con `ollama list` y en la bibli
 | `OLLAMA_TIMEOUT_SECONDS` | `600` | `300` |
 | `OLLAMA_NUM_CTX` | `8192` | `16384` |
 | `OLLAMA_MAX_OUTPUT_TOKENS` | `2048` | `2048` |
-| `GROUNDED_IMAGE_TOP_K` | `8` (defecto) | `8` (defecto); `16` si da `NO_IMAGE_EVIDENCE` |
+| `GROUNDED_IMAGE_TOP_K` | `8` (defecto) | `8` (defecto); `16` si rechaza temas documentados |
 | `GROUNDED_IMAGE_BUILDER_TEMPERATURE` | `0` | `0.2` (defecto) |
 | `GROUNDED_IMAGE_CAPTION_LANGUAGE` | `Spanish` | `Spanish` o vacío |
+| `GROUNDED_IMAGE_CAPTION_MODE` | `template` (defecto) | `template` (defecto) o `model` |
 | ComfyUI | SD 1.5, 512×512, `--lowvram` | SDXL 1024×1024 (~7 GB) o FLUX.1 schnell fp8 |
 | Tiempo aproximado | Respuesta en decenas de segundos; imagen 30–90 s | Respuesta en segundos; imagen 5–20 s |
-| Medido en vivo (PC, CPU, `qwen2.5:3b`) | Chat ~25 s; imagen completa ~3 min (agente 1 min 22 s, `generate_image` 17 s, ComfyUI ~63 s, pie 22 s) | — |
+| Medido en vivo (PC, CPU, `qwen2.5:3b`) | Chat ~25 s; imagen completa ~3 min con `TOP_K=4` (agente 1 min 22 s, `generate_image` 17 s, ComfyUI ~63 s, pie 22 s); ~5 min 12 s con `TOP_K=8` (agente 2 min 42 s, `generate_image` 40 s, ComfyUI + pie 1 min 50 s). El pie por plantilla elimina la llamada del pie | — |
 
 **No bajar `OLLAMA_NUM_CTX` de 8192.** Con el valor por defecto de Ollama (4096) el
 prompt con evidencia no cabe, el modelo entra en bucle y la ronda acaba por timeout.
@@ -81,7 +82,7 @@ Con `qwen2.5:3b` en CPU se observaron tres fallos en el canary local (19-nov):
 |---|---|---|
 | 504 en la ronda 1 | La ronda supera `OLLAMA_TIMEOUT_SECONDS=300` | `OLLAMA_TIMEOUT_SECONDS=600` |
 | 502 tras ~4 min; log `truncated at OLLAMA_MAX_OUTPUT_TOKENS` | El modelo entra en bucle repitiendo hechos hasta agotar los tokens | `GROUNDED_IMAGE_BUILDER_TEMPERATURE=0` y el esquema acotado (abajo) |
-| Pie de imagen en inglés | Los modelos pequeños siguen el idioma del prompt del sistema | `GROUNDED_IMAGE_CAPTION_LANGUAGE=Spanish` |
+| Pie de imagen en inglés | Los modelos pequeños siguen el idioma del prompt del sistema e ignoran `GROUNDED_IMAGE_CAPTION_LANGUAGE` (comprobado el 26-nov) | `GROUNDED_IMAGE_CAPTION_MODE=template` (defecto): el pie se arma con los hechos validados, sin modelo |
 
 Además, con el adaptador `ollama` el backend usa un **esquema acotado** para la
 instrucción con evidencia (máximo 6 hechos, 4 elementos por lista y textos de
