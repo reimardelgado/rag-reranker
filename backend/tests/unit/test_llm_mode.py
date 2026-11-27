@@ -2,6 +2,7 @@ import pytest
 
 from backend.api.composition import build_grounded_image_composition
 from backend.config import ConfigurationError, GroundedImageConfig
+from backend.grounding.builder import bounded_instruction_schema
 from backend.llm_mode import DEFAULT_OLLAMA_MODEL, LLMMode, LLMModeError
 from backend.providers.gemini_native import GeminiNativeAdapter
 from backend.providers.ollama_native import OllamaNativeAdapter
@@ -112,5 +113,6 @@ def test_local_composition_bounds_the_instruction_schema():
     orchestrator, _ = build_grounded_image_composition(
         ENABLED, retrieve_blocks=lambda q, k: [], retrieval_model_id="emb", api_key=None
     )
-    schema = orchestrator._builder._schema
+    assert orchestrator._builder._bounded_output is True
+    schema = bounded_instruction_schema()
     assert schema["properties"]["documented_facts"]["maxItems"] > 0

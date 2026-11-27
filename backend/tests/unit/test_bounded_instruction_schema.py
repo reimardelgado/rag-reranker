@@ -14,10 +14,17 @@ from backend.tests.unit.test_grounding_instruction import _items
 from backend.tests.unit.test_ollama_native_adapter import FORCE, TOOL, Recorder, _adapter, _events, _reply, _request
 
 
+def _packet():
+    return build_evidence_packet("Genera una imagen del oppidum", _items())
+
+
 def _schema_of(builder):
-    packet = build_evidence_packet("Genera una imagen del oppidum", _items())
-    [tool] = builder.build_request(packet).tools
+    [tool] = builder.build_request(_packet()).tools
     return tool.function.parameters
+
+
+def _packet_ids():
+    return [reference.reference_id for reference in _packet().references]
 
 
 def test_bounded_schema_limits_every_list_and_text():
@@ -39,7 +46,25 @@ def test_bounded_schema_limits_every_list_and_text():
 def test_builder_uses_bounds_only_when_requested():
     assert _schema_of(GroundedInstructionBuilder(object(), model="m")) == _INSTRUCTION_SCHEMA
     bounded = GroundedInstructionBuilder(object(), model="m", bounded_output=True)
-    assert _schema_of(bounded) == bounded_instruction_schema()
+    assert _schema_of(bounded) == bounded_instruction_schema(_packet_ids())
+
+
+def test_bounded_schema_restricts_citations_to_the_packet_ids():
+    ids = _packet_ids()
+    assert ids
+    bounded = GroundedInstructionBuilder(object(), model="m", bounded_output=True)
+    facts = _schema_of(bounded)["properties"]["documented_facts"]
+    citations = facts["items"]["properties"]["reference_ids"]
+    assert citations["items"]["enum"] == ids
+    assert citations["minItems"] == 1 and facts["minItems"] == 1
+    # Without IDs the schema falls back to a length bound only.
+    assert "enum" not in bounded_instruction_schema()["properties"]["documented_facts"]["items"][
+        "properties"
+    ]["reference_ids"]["items"]
+    # The shared, unbounded schema never carries the enum.
+    assert "enum" not in _INSTRUCTION_SCHEMA["properties"]["documented_facts"]["items"]["properties"][
+        "reference_ids"
+    ]["items"]
 
 
 @pytest.mark.asyncio
